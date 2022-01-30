@@ -2,6 +2,7 @@ import asyncio
 import re
 import traceback
 from typing import List
+from core.logger import Logger
 
 from graia.application import MessageChain, GroupMessage, FriendMessage
 from graia.application.friend import Friend
@@ -12,7 +13,7 @@ from graia.broadcast.interrupt.waiter import Waiter
 
 from config import Config
 from core.elements import Plain as BPlain, Image as BImage, Voice as BVoice, MessageSession as MS, MsgInfo, Session, \
-    FetchTarget as FT
+    FetchTarget as FT, ErrorMessage
 from core.elements.others import confirm_command
 from core.unused_bots.graia.broadcast import app, bcc
 from core.utils import slk_converter
@@ -23,7 +24,7 @@ from database.logging_message import LoggerMSG
 async def msgchain_gen(message) -> MessageChain:
     if isinstance(message, str):
         if message == '':
-            message = '发生错误：机器人尝试发送空文本消息，请联系机器人开发者解决问题。\n错误汇报地址：https://github.com/Teahouse-Studios/bot/issues/new?assignees=OasisAkari&labels=bug&template=report_bug.yaml&title=%5BBUG%5D%3A+'
+            message = ErrorMessage('机器人尝试发送空文本消息，请联系机器人开发者解决问题。')
         msgchain = MessageChain.create([Plain(message)])
     elif isinstance(message, (list, tuple)):
         msgchain_list = []
@@ -35,14 +36,12 @@ async def msgchain_gen(message) -> MessageChain:
             if isinstance(x, BVoice):
                 msgchain_list.append(Voice().fromLocalFile(filepath=await slk_converter(x.path)))
         if not msgchain_list:
-            msgchain_list.append(Plain(
-                '发生错误：机器人尝试发送空文本消息，请联系机器人开发者解决问题。\n错误汇报地址：https://github.com/Teahouse-Studios/bot/issues/new?assignees=OasisAkari&labels=bug&template=report_bug.yaml&title=%5BBUG%5D%3A+'))
+            msgchain_list.append(Plain(ErrorMessage('机器人尝试发送空文本消息，请联系机器人开发者解决问题。')))
         msgchain = MessageChain.create(msgchain_list)
     elif isinstance(message, MessageChain):
         msgchain = message
     else:
-        msgchain = MessageChain.create([Plain(
-            '发生错误：机器人尝试发送非法消息链，请联系机器人开发者解决问题。\n错误汇报地址：https://github.com/Teahouse-Studios/bot/issues/new?assignees=OasisAkari&labels=bug&template=report_bug.yaml&title=%5BBUG%5D%3A+')])
+        msgchain = MessageChain.create([Plain(ErrorMessage('机器人尝试发送非法消息链，请联系机器人开发者解决问题。'))])
     return msgchain
 
 
@@ -114,7 +113,7 @@ class MessageSession(MS):
         try:
             await app.revokeMessage(self.session.message)
         except Exception:
-            traceback.print_exc()
+            Logger.error(traceback.format_exc())
 
     async def checkPermission(self):
         """
@@ -124,8 +123,8 @@ class MessageSession(MS):
         """
         if isinstance(self.session.target, Group):
             if str(self.session.sender.permission) in ['MemberPerm.Administrator', 'MemberPerm.Owner'] \
-                    or self.target.senderInfo.query.isSuperUser \
-                    or self.target.senderInfo.check_TargetAdmin(self.target.targetId):
+                or self.target.senderInfo.query.isSuperUser \
+                or self.target.senderInfo.check_TargetAdmin(self.target.targetId):
                 return True
         if isinstance(self.session.target, Friend):
             return True
@@ -143,7 +142,7 @@ class MessageSession(MS):
                 try:
                     await app.nudge(self.msg.session.sender)
                 except Exception:
-                    traceback.print_exc()
+                    Logger.error(traceback.format_exc())
 
         async def __aexit__(self, exc_type, exc_val, exc_tb):
             pass
@@ -170,7 +169,7 @@ class FetchTarget(FT):
                     send = await x.sendMessage(message, quote=False)
                     send_list.append(send)
                 except Exception:
-                    traceback.print_exc()
+                    Logger.error(traceback.format_exc())
         else:
             get_target_id = BotDBUtil.Module.get_enabled_this(module_name)
             for x in get_target_id:
@@ -181,5 +180,5 @@ class FetchTarget(FT):
                         send_list.append(send)
                         await asyncio.sleep(0.5)
                     except Exception:
-                        traceback.print_exc()
+                        Logger.error(traceback.format_exc())
         return send_list

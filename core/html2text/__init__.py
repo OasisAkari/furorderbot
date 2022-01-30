@@ -7,6 +7,7 @@ import urllib.parse as urlparse
 from textwrap import wrap
 from typing import Dict, List, Optional, Tuple, Union
 
+from core.elements import Url
 from . import config
 from .elements import AnchorElement, ListElement
 from .typing import OutCallback
@@ -454,7 +455,7 @@ class HTML2Text(html.parser.HTMLParser):
             self.quote = not self.quote
 
         def link_url(self: HTML2Text, link: str, title: str = "") -> None:
-            url = urlparse.urljoin(self.baseurl, link)
+            url = str(Url(urlparse.urljoin(self.baseurl, link)))
             # title = ' "{}"'.format(title) if title.strip() else ""
             self.o("]({url})".format(url=escape_md(url)))
 
@@ -542,11 +543,11 @@ class HTML2Text(html.parser.HTMLParser):
                 if self.images_to_alt:
                     self.o(escape_md(alt))
                 else:
-                    self.o("![" + escape_md(alt) + "]")
+                    self.o("![" + str(Url(escape_md(alt))) + "]")
                     if self.inline_links:
                         href = attrs.get("href") or ""
                         self.o(
-                            "(" + escape_md(urlparse.urljoin(self.baseurl, href)) + ")"
+                            "(" + str(Url(escape_md(urlparse.urljoin(self.baseurl, href)))) + ")"
                         )
                     else:
                         i = self.previousIndex(attrs)
@@ -775,7 +776,7 @@ class HTML2Text(html.parser.HTMLParser):
                             "   ["
                             + str(link.count)
                             + "]: "
-                            + urlparse.urljoin(self.baseurl, link.attrs["href"])
+                            + str(Url(urlparse.urljoin(self.baseurl, link.attrs["href"])))
                         )
                         if "title" in link.attrs:
                             assert link.attrs["title"] is not None

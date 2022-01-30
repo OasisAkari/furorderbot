@@ -7,7 +7,7 @@ from tenacity import retry, stop_after_attempt
 
 from core.elements import MessageSession
 from database import session, auto_rollback_error
-from .orm import WikiTargetSetInfo, WikiInfo, WikiAllowList, WikiBlockList
+from .orm import WikiTargetSetInfo, WikiInfo, WikiAllowList, WikiBlockList, WikiTargetBindInfo, WikiTargetPrefix
 
 
 class WikiTargetInfo:
@@ -126,6 +126,61 @@ class WikiSiteInfo:
             self.query.siteInfo = json.dumps(info)
             self.query.timestamp = datetime.now()
         session.commit()
+        return True
+
+
+class BindInfo:
+    @retry(stop=stop_after_attempt(3))
+    @auto_rollback_error
+    def __init__(self, targetId):
+        self.targetId = targetId
+        self.query = session.query(WikiTargetBindInfo).filter_by(targetId=targetId).first()
+
+    def get(self):
+        if self.query is not None:
+            return self.query.bind_title
+        return False
+
+    @retry(stop=stop_after_attempt(3))
+    @auto_rollback_error
+    def set(self, title: str):
+        if self.query is None:
+            session.add_all([WikiTargetBindInfo(targetId=self.targetId, bind_title=title)])
+        else:
+            self.query.bind_title = title
+        session.commit()
+        return True
+
+
+class Prefix:
+    @retry(stop=stop_after_attempt(3))
+    @auto_rollback_error
+    def __init__(self, targetId):
+        self.targetId = targetId
+        print(self.targetId)
+        self.query = session.query(WikiTargetPrefix).filter_by(targetId=targetId).first()
+
+    def get(self):
+        if self.query is not None:
+            return self.query.prefix
+        return False
+
+    @retry(stop=stop_after_attempt(3))
+    @auto_rollback_error
+    def set(self, prefix: str):
+        if self.query is None:
+            session.add_all([WikiTargetPrefix(targetId=self.targetId, prefix=prefix)])
+        else:
+            self.query.prefix = prefix
+        session.commit()
+        return True
+
+    @retry(stop=stop_after_attempt(3))
+    @auto_rollback_error
+    def reset(self):
+        if self.query is not None:
+            self.query.prefix = None
+            session.commit()
         return True
 
 

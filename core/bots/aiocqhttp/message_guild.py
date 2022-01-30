@@ -7,68 +7,60 @@ from aiocqhttp import MessageSegment
 
 from core.bots.aiocqhttp.client import bot
 from core.bots.aiocqhttp.tasks import MessageTaskManager, FinishedTasks
-from core.elements import Plain, Image, MessageSession as MS, MsgInfo, Session, ExecutionLockList
+from core.elements import Plain, Image, MessageSession as MS, ExecutionLockList, FinishedSession as FinS
+from core.elements.message.chain import MessageChain
 from core.elements.others import confirm_command
 from core.logger import Logger
-from core.secret_check import Secret
 
 
-def convert2lst(s) -> list:
-    if isinstance(s, str):
-        return [Plain(s)]
-    elif isinstance(s, list):
-        return s
-    elif isinstance(s, tuple):
-        return list(s)
+class FinishedSession(FinS):
+    def __init__(self, result: list):
+        self.result = result
+
+    async def delete(self):
+        """
+        用于删除这条消息。
+        """
+        ...
 
 
 class MessageSession(MS):
     class Feature:
         image = True
         voice = False
+        embed = False
         forward = False
         delete = False
+        wait = True
+        quote = False
 
-    async def sendMessage(self, msgchain, quote=True):
+    async def sendMessage(self, msgchain, quote=True, disable_secret_check=False) -> FinishedSession:
         msg = MessageSegment.text('')
-        # if quote:
-        #    msg = MessageSegment.reply(self.session.message.message_id)
-        if Secret.find(msgchain):
+        msgchain = MessageChain(msgchain)
+        if not msgchain.is_safe and not disable_secret_check:
             return await self.sendMessage('https://wdf.ink/6Oup')
-        if isinstance(msgchain, str):
-            msg = msg + (MessageSegment.text(msgchain if msgchain != '' else
-                                             '发生错误：机器人尝试发送空文本消息，请联系机器人开发者解决问题。'
-                                             '\n错误汇报地址：https://github.com/Teahouse-Studios/bot/issues/new?assignees=OasisAkari&labels=bug&template=5678.md&title='))
-        elif isinstance(msgchain, (list, tuple)):
-            count = 0
-            for x in msgchain:
-                if isinstance(x, Plain):
-                    msg = msg + MessageSegment.text(('\n' if count != 0 else '') + x.text)
-                elif isinstance(x, Image):
-                    msg = msg + MessageSegment.image(Path(await x.get()).as_uri())
-                # elif isinstance(x, Voice):
-                #    msg = msg + MessageSegment.record(Path(x.path).as_uri())
-                count += 1
-        else:
-            msg = msg + MessageSegment.text('发生错误：机器人尝试发送非法消息链，请联系机器人开发者解决问题。'
-                                            '\n错误汇报地址：https://github.com/Teahouse-Studios/bot/issues/new?assignees=OasisAkari&labels=bug&template=5678.md&title=')
+        count = 0
+        for x in msgchain.asSendable(embed=False):
+            if isinstance(x, Plain):
+                msg = msg + MessageSegment.text(('\n' if count != 0 else '') + x.text)
+            elif isinstance(x, Image):
+                msg = msg + MessageSegment.image(Path(await x.get()).as_uri())
+            # elif isinstance(x, Voice):
+            #    msg = msg + MessageSegment.record(Path(x.path).as_uri())
+            count += 1
         Logger.info(f'[Bot] -> [{self.target.targetId}]: {msg}')
         Logger.info(self.session.target)
         match_guild = re.match(r'(.*)\|(.*)', self.session.target)
         send = await bot.call_action('send_guild_channel_msg', guild_id=int(match_guild.group(1)),
                                      channel_id=int(match_guild.group(2)), message=msg)
 
-        return MessageSession(target=MsgInfo(targetId=0, senderId=0, senderName='', targetFrom='QQ|Bot',
-                                             senderFrom='QQ|Bot'),
-                              session=Session(message=send,
-                                              target=self.session.target,
-                                              sender=self.session.sender))
+        return FinishedSession([send])
 
     async def waitConfirm(self, msgchain=None, quote=True):
         send = None
         ExecutionLockList.remove(self)
         if msgchain is not None:
-            msgchain = convert2lst(msgchain)
+            msgchain = MessageChain(msgchain)
             msgchain.append(Plain('（发送“是”或符合确认条件的词语来确认）'))
             send = await self.sendMessage(msgchain, quote)
         flag = asyncio.Event()
@@ -83,12 +75,19 @@ class MessageSession(MS):
     async def checkPermission(self):
         if self.target.senderInfo.check_TargetAdmin(self.target.targetId) or self.target.senderInfo.query.isSuperUser:
             return True
+        return await self.checkNativePermission()
+
+    async def checkNativePermission(self):
         match_guild = re.match(r'(.*)\|(.*)', self.session.target)
-        get_member_info = await bot.call_action('get_guild_members', guild_id=match_guild.group(1))
-        tiny_id = self.session.sender
-        for m in get_member_info['admins']:
-            if m['tiny_id'] == tiny_id:
+        get_member_info = await bot.call_action('get_guild_member_profile', guild_id=match_guild.group(1),
+                                                user_id=self.session.sender)
+        print(get_member_info)
+        for m in get_member_info['roles']:
+            if m['role_id'] == "2":
                 return True
+        get_guild_info = await bot.call_action('get_guild_meta_by_guest', guild_id=match_guild.group(1))
+        if get_guild_info['owner_id'] == self.session.sender:
+            return True
         return False
 
     def checkSuperUser(self):
@@ -96,7 +95,8 @@ class MessageSession(MS):
 
     async def get_text_channel_list(self):
         match_guild = re.match(r'(.*)\|(.*)', self.session.target)
-        get_channels_info = await bot.call_action('get_guild_channel_list', guild_id=match_guild.group(1), no_cache=True)
+        get_channels_info = await bot.call_action('get_guild_channel_list', guild_id=match_guild.group(1),
+                                                  no_cache=True)
         lst = []
         for m in get_channels_info:
             if m['channel_type'] == 1:
@@ -131,6 +131,8 @@ class MessageSession(MS):
 
         async def __aexit__(self, exc_type, exc_val, exc_tb):
             pass
+
+
 """
 
 class FetchTarget(FT):

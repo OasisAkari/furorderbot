@@ -20,6 +20,18 @@ class WikiTargetSetInfo(Base):
     prefix = Column(LONGTEXT if session.bind.dialect.name == 'mysql' else Text)
 
 
+class WikiTargetBindInfo(Base):
+    __tablename__ = table_prefix + 'TargetBindInfo'
+    targetId = Column(String(512), primary_key=True)
+    bind_title = Column(LONGTEXT if session.bind.dialect.name == 'mysql' else Text)
+
+
+class WikiTargetPrefix(Base):
+    __tablename__ = table_prefix + 'TargetPrefix'
+    targetId = Column(String(512), primary_key=True)
+    prefix = Column(LONGTEXT if session.bind.dialect.name == 'mysql' else Text)
+
+
 class WikiInfo(Base):
     __tablename__ = table_prefix + 'WikiInfo'
     apiLink = Column(String(512), primary_key=True)

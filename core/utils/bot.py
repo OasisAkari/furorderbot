@@ -8,16 +8,15 @@ from typing import Union
 import aiohttp
 import filetype as ft
 import ujson as json
-
 from tenacity import retry, wait_fixed, stop_after_attempt
 
-from core.elements import FetchTarget, PrivateAssets
+from core.elements import PrivateAssets
 from core.loader import load_modules
 from core.logger import Logger
 
 
 def init() -> None:
-    '''初始化机器人。仅用于bot.py与unit_test.py。'''
+    '''初始化机器人。仅用于bot.py与console.py。'''
     load_modules()
     version = os.path.abspath(PrivateAssets.path + '/version')
     write_version = open(version, 'w')
@@ -31,7 +30,7 @@ def init() -> None:
     try:
         write_tag.write(os.popen('git tag -l', 'r').read().split('\n')[-2])
     except ValueError:
-        write_tag.write('v4.?.? (Not a git repo)')
+        write_tag.write('v4.?.?')
     write_tag.close()
 
 
@@ -51,7 +50,7 @@ async def get_url(url: str, status_code: int = False, headers: dict = None, fmt=
             if log:
                 Logger.info(await req.read())
             if status_code and req.status != status_code:
-                raise ValueError(req.status)
+                raise ValueError(f'{str(req.status)}[Ke:Image,path=https://http.cat/{str(req.status)}.jpg]')
             if fmt is not None:
                 if hasattr(req, fmt):
                     return await getattr(req, fmt)()
@@ -63,9 +62,21 @@ async def get_url(url: str, status_code: int = False, headers: dict = None, fmt=
 
 
 @retry(stop=stop_after_attempt(3), wait=wait_fixed(3), reraise=True)
+async def post_url(url: str, data: any, headers: dict = None):
+    '''发送POST请求。
+    :param url: 需要发送的url。
+    :param data: 需要发送的数据。
+    :param headers: 请求时使用的http头。
+    :returns: 发送请求后的响应。'''
+    async with aiohttp.ClientSession(headers=headers) as session:
+        async with session.post(url, data=data, headers=headers) as req:
+            return await req.text()
+
+
+@retry(stop=stop_after_attempt(3), wait=wait_fixed(3), reraise=True)
 async def download_to_cache(link: str) -> Union[str, bool]:
     '''利用AioHttp下载指定url的内容，并保存到缓存（./cache目录）。
-    
+
     :param link: 需要获取的link。
     :returns: 文件的相对路径，若获取失败则返回False。'''
     try:
@@ -78,7 +89,7 @@ async def download_to_cache(link: str) -> Union[str, bool]:
                     file.write(res)
                     return path
     except:
-        traceback.print_exc()
+        Logger.error(traceback.format_exc())
         return False
 
 
@@ -88,7 +99,7 @@ def cache_name():
 
 async def slk_converter(filepath: str) -> str:
     '''将指定文件转为slk格式。
-    
+
     :param filepath: 需要获取的link。
     :returns: 文件的相对路径。'''
     filepath2 = filepath + '.silk'
@@ -98,7 +109,7 @@ async def slk_converter(filepath: str) -> str:
     return filepath2
 
 
-async def load_prompt(bot: FetchTarget) -> None:
+async def load_prompt(bot) -> None:
     author_cache = os.path.abspath(PrivateAssets.path + '/cache_restart_author')
     loader_cache = os.path.abspath(PrivateAssets.path + '/.cache_loader')
     if os.path.exists(author_cache):
@@ -107,7 +118,7 @@ async def load_prompt(bot: FetchTarget) -> None:
         open_loader_cache = open(loader_cache, 'r')
         m = await bot.fetch_target(author)
         if m:
-            await m.sendMessage(open_loader_cache.read())
+            await m.sendDirectMessage(open_loader_cache.read())
             open_loader_cache.close()
             open_author_cache.close()
             os.remove(author_cache)

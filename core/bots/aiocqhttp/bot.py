@@ -36,12 +36,15 @@ async def startup():
     Scheduler.start()
     logging.getLogger('apscheduler.executors.default').setLevel(logging.WARNING)
     bot.logger.setLevel(logging.WARNING)
+
+
+@bot.on_websocket_connection
+async def _(event: Event):
     await load_prompt(FetchTarget)
 
 
 @bot.on_message('group', 'private')
 async def _(event: Event):
-    print(event.message)
     if event.detail_type == 'private':
         if event.sub_type == 'group':
             return await bot.send(event, '请先添加好友后再进行命令交互。')
@@ -111,7 +114,8 @@ async def _(event: Event):
         if event.duration >= 259200:
             result = True
         else:
-            result = UnfriendlyActions(targetId=event.group_id, senderId=event.operator_id).add_and_check('mute')
+            result = UnfriendlyActions(targetId=event.group_id,
+                                       senderId=event.operator_id).add_and_check('mute', str(event.duration))
         if result:
             await bot.call_action('set_group_leave', group_id=event.group_id)
             BotDBUtil.SenderInfo('QQ|' + str(event.operator_id)).edit('isInBlockList', True)

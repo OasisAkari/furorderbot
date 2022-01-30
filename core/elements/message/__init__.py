@@ -1,3 +1,4 @@
+import asyncio
 from typing import List
 
 
@@ -25,6 +26,17 @@ class Session:
         self.sender = sender
 
 
+class FinishedSession:
+    def __init__(self, result: list):
+        self.result = result
+
+    async def delete(self):
+        """
+        用于删除这条消息。
+        """
+        ...
+
+
 class MessageSession:
     """
     消息会话，囊括了处理一条消息所需要的东西。
@@ -37,14 +49,27 @@ class MessageSession:
         self.target = target
         self.session = session
 
-    async def sendMessage(self, msgchain, quote=True):
+    async def sendMessage(self,
+                          msgchain,
+                          quote=True,
+                          disable_secret_check=False) -> FinishedSession:
         """
         用于向消息发送者回复消息。
         :param msgchain: 消息链，若传入str则自动创建一条带有Plain元素的消息链
         :param quote: 是否引用传入dict中的消息（默认为True）
+        :param disable_secret_check: 是否禁用消息检查（默认为False）
         :return: 被发送的消息链
         """
         ...
+
+    async def sendDirectMessage(self, msgchain, disable_secret_check=False):
+        """
+        用于向消息发送者直接发送消息。
+        :param msgchain: 消息链，若传入str则自动创建一条带有Plain元素的消息链
+        :param disable_secret_check: 是否禁用消息检查（默认为False）
+        :return: 被发送的消息链
+        """
+        await self.sendMessage(msgchain, disable_secret_check=disable_secret_check, quote=False)
 
     async def waitConfirm(self, msgchain=None, quote=True):
         """
@@ -70,6 +95,12 @@ class MessageSession:
     async def checkPermission(self):
         """
         用于检查消息发送者在对象内的权限。
+        """
+        ...
+
+    async def checkNativePermission(self):
+        """
+        用于检查消息发送者原本在聊天平台中是否具有管理员权限。
         """
         ...
 
@@ -99,7 +130,7 @@ class MessageSession:
         ...
 
     async def sleep(self, s):
-        ...
+        await asyncio.sleep(s)
 
     class Feature:
         """
@@ -107,30 +138,55 @@ class MessageSession:
         """
         image = ...
         voice = ...
+        embed = ...
         forward = ...
         delete = ...
+        quote = ...
+        wait = ...
+
+
+class FetchedSession:
+    def __init__(self, targetFrom, targetId):
+        self.target = MsgInfo(targetId=f'{targetFrom}|{targetId}',
+                              senderId=f'{targetFrom}|{targetId}',
+                              targetFrom=targetFrom,
+                              senderFrom=targetFrom,
+                              senderName='')
+        self.session = Session(message=False, target=targetId, sender=targetId)
+        self.parent = MessageSession(self.target, self.session)
+
+    async def sendDirectMessage(self, msgchain, disable_secret_check=False):
+        """
+        用于向获取对象发送消息。
+        :param msgchain: 消息链，若传入str则自动创建一条带有Plain元素的消息链
+        :param disable_secret_check: 是否禁用消息检查（默认为False）
+        :return: 被发送的消息链
+        """
+        return await self.parent.sendDirectMessage(msgchain, disable_secret_check)
 
 
 class FetchTarget:
+    name = ''
+
     @staticmethod
-    async def fetch_target(targetId) -> MessageSession:
+    async def fetch_target(targetId) -> FetchedSession:
         """
         尝试从数据库记录的对象ID中取得对象消息会话，实际此会话中的消息文本会被设为False（因为本来就没有）。
         """
         ...
 
     @staticmethod
-    async def fetch_target_list(targetList: list) -> List[MessageSession]:
+    async def fetch_target_list(targetList: list) -> List[FetchedSession]:
         """
         尝试从数据库记录的对象ID中取得对象消息会话，实际此会话中的消息文本会被设为False（因为本来就没有）。
         """
         ...
 
     @staticmethod
-    async def post_message(module_name, message, user_list: List[MessageSession] = None):
+    async def post_message(module_name, message, user_list: List[FetchedSession] = None):
         """
         尝试向开启此模块的对象发送一条消息。
         """
 
 
-__all__ = ["FetchTarget", "MsgInfo", "MessageSession", "Session"]
+__all__ = ["FetchTarget", "MsgInfo", "MessageSession", "Session", "FetchedSession", "FinishedSession"]

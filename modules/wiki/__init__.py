@@ -12,7 +12,7 @@ from core.exceptions import AbuseWarning
 from core.utils import download_to_cache
 from core.utils.image_table import image_table_render, ImageTable
 from database import BotDBUtil
-from .dbutils import WikiTargetInfo, Audit
+from .dbutils import WikiTargetInfo, Audit, BindInfo, Prefix
 from .getinfobox import get_infobox_pic
 from .utils.ab import ab
 from .utils.ab_qq import ab_qq
@@ -22,7 +22,7 @@ from .utils.rc_qq import rc_qq
 from .wikilib_v2 import WikiLib, WhatAreUDoingError, PageInfo, InvalidWikiError
 
 wiki = on_command('wiki',
-                  alias={'wiki_start_site': 'wiki set', 'interwiki': 'wiki iw'},
+                  alias={'wiki_start_site': 'wiki set', 'interwiki': 'wiki iw', '绑定设定': 'wiki bind', '查询设定': 'wiki query'},
                   recommend_modules='wiki_inline',
                   developers=['OasisAkari'])
 
@@ -145,19 +145,38 @@ async def _(msg: MessageSession):
 
 @wiki.handle('prefix set <prefix> {设置查询自动添加前缀}', required_admin=True)
 async def _(msg: MessageSession):
-    target = WikiTargetInfo(msg)
+    target = Prefix(msg.target.targetId)
     prefix = msg.parsed_msg['<prefix>']
-    set_prefix = target.set_prefix(prefix)
+    set_prefix = target.set(prefix)
     if set_prefix:
         await msg.sendMessage(f'成功更新请求时所使用的前缀：{prefix}')
 
 
 @wiki.handle('prefix reset {重置查询自动添加的前缀}', required_admin=True)
 async def _(msg: MessageSession):
-    target = WikiTargetInfo(msg)
-    set_prefix = target.del_prefix()
+    target = Prefix(msg)
+    set_prefix = target.reset()
     if set_prefix:
         await msg.sendMessage(f'成功重置请求时所使用的前缀。')
+
+
+@wiki.handle('query <title>')
+async def _(msg: MessageSession):
+    targetId = re.match('\[CQ:at,qq=(.*)]', msg.parsed_msg['<title>'])
+    if targetId:
+        target = BindInfo(targetId.group(1))
+        get_ = target.get()
+        if get_:
+            await query_pages(msg, get_)
+        else:
+            await msg.sendMessage('当前未绑定任何页面')
+
+
+@wiki.handle('bind <title>')
+async def _(msg: MessageSession):
+    target = BindInfo(msg.session.sender).set(msg.parsed_msg['<title>'])
+    if target:
+        await msg.sendMessage('成功')
 
 
 aud = on_command('wiki_audit', alias='wa',
@@ -317,7 +336,7 @@ async def query_pages(msg: MessageSession, title: Union[str, list, tuple],
     start_wiki = target.get_start_wiki()
     interwiki_list = target.get_interwikis()
     headers = target.get_headers()
-    prefix = target.get_prefix()
+    prefix = Prefix(msg.target.targetId).get()
     enabled_fandom_addon = BotDBUtil.Module(msg).check_target_enabled_module('wiki_fandom_addon')
     if start_wiki is None:
         await msg.sendMessage('没有指定起始Wiki，已默认指定为中文Minecraft Wiki，发送~wiki set <域名>来设定自定义起始Wiki。'
@@ -329,7 +348,7 @@ async def query_pages(msg: MessageSession, title: Union[str, list, tuple],
         raise AbuseWarning('一次性查询的页面超出15个。')
     query_task = {start_wiki: {'query': [], 'iw_prefix': ''}}
     for t in title:
-        if prefix is not None and useprefix:
+        if prefix and useprefix:
             t = prefix + t
         if t[0] == ':':
             if len(t) > 1:
