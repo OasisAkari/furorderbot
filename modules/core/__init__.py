@@ -10,6 +10,8 @@ from core.component import on_command
 from core.elements import MessageSession, Command, PrivateAssets, Image, Plain
 from core.loader import ModulesManager
 from core.parser.command import CommandParser, InvalidHelpDocTypeError
+from core.parser.message import remove_temp_ban
+from core.tos import pardon_user, warn_user
 from core.utils.image_table import ImageTable, image_table_render, web_render
 from database import BotDBUtil
 
@@ -22,9 +24,7 @@ module = on_command('module',
 
 
 @module.handle(['enable (<module>...|all) {开启一个/多个或所有模块}',
-                'disable (<module>...|all) {关闭一个/多个或所有模块}'],
-               available_for=['QQ|Group', 'QQ', 'Discord|Channel', 'Discord|DM|Channel', 'Telegram|private',
-                              'Telegram|group', 'Telegram|supergroup', 'Telegram|channel', 'TEST|Console'])
+                'disable (<module>...|all) {关闭一个/多个或所有模块}'], exclude_from=['QQ|Guild'])
 async def _(msg: MessageSession):
     await config_modules(msg)
 
@@ -38,7 +38,7 @@ async def _(msg: MessageSession):
 
 async def config_modules(msg: MessageSession):
     alias = ModulesManager.return_modules_alias_map()
-    modules_ = ModulesManager.return_modules_list_as_dict()
+    modules_ = ModulesManager.return_modules_list_as_dict(targetFrom=msg.target.targetFrom)
     wait_config = msg.parsed_msg['<module>']
     wait_config_list = []
     for module_ in wait_config:
@@ -58,7 +58,7 @@ async def config_modules(msg: MessageSession):
                 if function[0] == '_':
                     continue
                 if isinstance(modules_[function], Command) and (
-                        modules_[function].base or modules_[function].required_superuser):
+                    modules_[function].base or modules_[function].required_superuser):
                     continue
                 enable_list.append(function)
         else:
@@ -105,7 +105,7 @@ async def config_modules(msg: MessageSession):
                 if function[0] == '_':
                     continue
                 if isinstance(modules_[function], Command) and (
-                        modules_[function].base or modules_[function].required_superuser):
+                    modules_[function].base or modules_[function].required_superuser):
                     continue
                 disable_list.append(function)
         else:
@@ -149,7 +149,7 @@ hlp = on_command('help',
 
 @hlp.handle('<module> {查看一个模块的详细信息}')
 async def bot_help(msg: MessageSession):
-    module_list = ModulesManager.return_modules_list_as_dict()
+    module_list = ModulesManager.return_modules_list_as_dict(targetFrom=msg.target.targetFrom)
     developers = ModulesManager.return_modules_developers_map()
     alias = ModulesManager.return_modules_alias_map()
     if msg.parsed_msg is not None:
@@ -190,7 +190,7 @@ async def bot_help(msg: MessageSession):
 
 @hlp.handle()
 async def _(msg: MessageSession):
-    module_list = ModulesManager.return_modules_list_as_dict()
+    module_list = ModulesManager.return_modules_list_as_dict(targetFrom=msg.target.targetFrom)
     target_enabled_list = BotDBUtil.Module(msg).check_target_enabled_module_list()
     developers = ModulesManager.return_modules_developers_map()
     legacy_help = True
@@ -229,7 +229,7 @@ async def _(msg: MessageSession):
                 if render:
                     legacy_help = False
                     await msg.sendMessage([Image(render),
-                                           Plain('使用~modules查看所有的可用模块。'
+                                           Plain('此处展示的帮助文档仅展示已开启的模块，若需要查看全部模块的帮助文档，请使用~modules命令。'
                                                  '\n你也可以通过查阅文档获取帮助：\nhttps://bot.teahou.se/wiki/')])
         except Exception:
             traceback.print_exc()
@@ -265,8 +265,7 @@ modules = on_command('modules',
 
 @modules.handle()
 async def modules_help(msg: MessageSession):
-    module_list = ModulesManager.return_modules_list_as_dict()
-    target_enabled_list = BotDBUtil.Module(msg).check_target_enabled_module_list()
+    module_list = ModulesManager.return_modules_list_as_dict(targetFrom=msg.target.targetFrom)
     developers = ModulesManager.return_modules_developers_map()
     legacy_help = True
     if web_render and msg.Feature.image:
@@ -404,36 +403,114 @@ async def config_gu(msg: MessageSession):
                 await msg.sendMessage("成功")
 
 
-asu = on_command('add_su', developers=['OasisAkari'], required_superuser=True)
+su = on_command('superuser', alias=['su'], developers=['OasisAkari', 'Dianliang233'], required_superuser=True)
 
 
-@asu.handle('<user>')
+@su.handle('add <user>')
 async def add_su(message: MessageSession):
     user = message.parsed_msg['<user>']
     print(message.parsed_msg)
     if user:
         if BotDBUtil.SenderInfo(user).edit('isSuperUser', True):
-            await message.sendMessage('成功')
+            await message.sendMessage('操作成功：已将' + user + '设置为超级用户。')
 
 
-dsu = on_command('del_su', developers=['OasisAkari'], required_superuser=True)
-
-
-@dsu.handle('<user>')
+@su.handle('del <user>')
 async def del_su(message: MessageSession):
     user = message.parsed_msg['<user>']
     if user:
         if BotDBUtil.SenderInfo(user).edit('isSuperUser', False):
-            await message.sendMessage('成功')
+            await message.sendMessage('操作成功：已将' + user + '移出超级用户。')
+
+
+whoami = on_command('whoami', developers=['Dianliang233'], desc='获取发送命令的账号在机器人内部的 ID', base=True)
+
+
+@whoami.handle()
+async def _(msg: MessageSession):
+    rights = ''
+    if await msg.checkNativePermission():
+        rights += '\n（你拥有本对话的管理员权限）'
+    elif await msg.checkPermission():
+        rights += '\n（你拥有本对话的机器人管理员权限）'
+    if msg.checkSuperUser():
+        rights += '\n（你拥有本机器人的超级用户权限）'
+    await msg.sendMessage(f'你的 ID 是：{msg.target.senderId}\n本对话的 ID 是：{msg.target.targetId}' + rights,
+                          disable_secret_check=True)
+
+
+ae = on_command('abuse', alias=['ae'], developers=['Dianliang233'], required_superuser=True)
+
+
+@ae.handle('check <user>')
+async def _(msg: MessageSession):
+    user = msg.parsed_msg['<user>']
+    warns = BotDBUtil.SenderInfo(user).query.warns
+    await msg.sendMessage(f'{user} 已被警告 {warns} 次。')
+
+
+@ae.handle('warn <user> [<count>]')
+async def _(msg: MessageSession):
+    count = int(msg.parsed_msg['<count>'] or 1)
+    user = msg.parsed_msg['<user>']
+    warn_count = await warn_user(user, count)
+    await msg.sendMessage(f'成功警告 {user} {count} 次。此用户已被警告 {warn_count} 次。')
+
+
+@ae.handle('revoke <user> [<count>]')
+async def _(msg: MessageSession):
+    count = 0 - int(msg.parsed_msg['<count>'] or -1)
+    user = msg.parsed_msg['<user>']
+    warn_count = await warn_user(user, count)
+    await msg.sendMessage(f'成功移除警告 {user} 的 {count} 次警告。此用户已被警告 {warn_count} 次。')
+
+
+@ae.handle('clear <user>')
+async def _(msg: MessageSession):
+    user = msg.parsed_msg['<user>']
+    await pardon_user(user)
+    await msg.sendMessage(f'成功清除 {user} 的警告。')
+
+
+@ae.handle('untempban <user>')
+async def _(msg: MessageSession):
+    user = msg.parsed_msg['<user>']
+    await remove_temp_ban(user)
+    await msg.sendMessage(f'成功解除 {user} 的临时封禁。')
+
+
+@ae.handle('ban <user>')
+async def _(msg: MessageSession):
+    user = msg.parsed_msg['<user>']
+    if BotDBUtil.SenderInfo(user).edit('isInBlockList', True):
+        await msg.sendMessage(f'成功封禁 {user}。')
+
+
+@ae.handle('unban <user>')
+async def _(msg: MessageSession):
+    user = msg.parsed_msg['<user>']
+    if BotDBUtil.SenderInfo(user).edit('isInBlockList', False):
+        await msg.sendMessage(f'成功解除 {user} 的封禁。')
 
 
 """
 @on_command('set_modules', required_superuser=True, help_doc='set_modules <>')
 async def set_modules(display_msg: dict):
     ...
-
+"""
 
 rst = on_command('restart', developers=['OasisAkari'], required_superuser=True)
+
+
+def restart():
+    sys.exit(233)
+
+
+def write_version_cache(msg: MessageSession):
+    update = os.path.abspath(PrivateAssets.path + '/cache_restart_author')
+    write_version = open(update, 'w')
+    write_version.write(json.dumps({'From': msg.target.targetFrom, 'ID': msg.target.targetId}))
+    write_version.close()
 
 
 @rst.handle()
@@ -441,16 +518,16 @@ async def restart_bot(msg: MessageSession):
     await msg.sendMessage('你确定吗？')
     confirm = await msg.waitConfirm()
     if confirm:
-        update = os.path.abspath(PrivateAssets.path + '/cache_restart_author')
-        write_version = open(update, 'w')
-        write_version.write(json.dumps({'From': msg.target.targetFrom, 'ID': msg.target.targetId}))
-        write_version.close()
+        write_version_cache(msg)
         await msg.sendMessage('已执行。')
-        python = sys.executable
-        os.execl(python, python, *sys.argv)
+        restart()
 
 
 upd = on_command('update', developers=['OasisAkari'], required_superuser=True)
+
+
+def pull_repo():
+    return os.popen('git pull', 'r').read()[:-1]
 
 
 @upd.handle()
@@ -458,8 +535,7 @@ async def update_bot(msg: MessageSession):
     await msg.sendMessage('你确定吗？')
     confirm = await msg.waitConfirm()
     if confirm:
-        result = os.popen('git pull', 'r')
-        await msg.sendMessage(result.read()[:-1])
+        await msg.sendMessage(pull_repo())
 
 
 upds = on_command('update&restart', developers=['OasisAkari'], required_superuser=True)
@@ -470,16 +546,9 @@ async def update_and_restart_bot(msg: MessageSession):
     await msg.sendMessage('你确定吗？')
     confirm = await msg.waitConfirm()
     if confirm:
-        update = os.path.abspath(PrivateAssets.path + '/cache_restart_author')
-        write_version = open(update, 'w')
-        write_version.write(json.dumps({'From': msg.target.targetFrom, 'ID': msg.target.targetId}))
-        write_version.close()
-        result = os.popen('git pull', 'r')
-        await msg.sendMessage(result.read()[:-1])
-        python = sys.executable
-        os.execl(python, python, *sys.argv)
-        
-"""
+        write_version_cache(msg)
+        await msg.sendMessage(pull_repo())
+        restart()
 
 
 echo = on_command('echo', developers=['OasisAkari'], required_superuser=True)
@@ -488,6 +557,14 @@ echo = on_command('echo', developers=['OasisAkari'], required_superuser=True)
 @echo.handle('<display_msg>')
 async def _(msg: MessageSession):
     await msg.sendMessage(msg.parsed_msg['<display_msg>'])
+
+
+say = on_command('say', developers=['OasisAkari'], required_superuser=True)
+
+
+@say.handle('<display_msg>')
+async def _(msg: MessageSession):
+    await msg.sendMessage(msg.parsed_msg['<display_msg>'], quote=False)
 
 
 tog = on_command('toggle', developers=['OasisAkari'], base=True)
@@ -503,3 +580,16 @@ async def _(msg: MessageSession):
     else:
         target.edit('disable_typing', False)
         await msg.sendMessage('成功打开输入提示。')
+
+
+mute = on_command('mute', developers=['Dianliang233'], base=True, required_admin=True)
+
+
+@mute.handle()
+async def _(msg: MessageSession):
+    if BotDBUtil.Muting(msg).check():
+        BotDBUtil.Muting(msg).remove()
+        await msg.sendMessage('成功取消禁言。')
+    else:
+        BotDBUtil.Muting(msg).add()
+        await msg.sendMessage('成功禁言。')
