@@ -424,14 +424,14 @@ async def _(msg: MessageSession):
             await msg.sendMessage('已取消。')
 
 
-@on_schedule('autodelete_scheduler', trigger=IntervalTrigger(minutes=1), required_superuser=True)
+@on_schedule('autodelete_scheduler', trigger=IntervalTrigger(minutes=10), required_superuser=True)
 async def _(bot: FetchTarget):
     records = OrderDBUtil.Delete.show()
     getlist = await bot.call_api('get_group_list')
     for x in records:
         m = re.match(r'QQ\|Group\|(.*)', x.targetId)
         if m:
-            if datetime.datetime.now().timestamp() - x.timestamp.timestamp() > 60:
+            if datetime.datetime.now().timestamp() - x.timestamp.timestamp() > 1800:
                 found = False
                 for y in getlist:
                     if y['group_id'] == int(m.group(1)):
