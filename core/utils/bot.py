@@ -22,14 +22,14 @@ def init() -> None:
     write_version = open(version, 'w')
     try:
         write_version.write(os.popen('git rev-parse HEAD', 'r').read()[0:6])
-    except ValueError:
+    except (ValueError, IndexError):
         write_version.write('Not a git repo')
     write_version.close()
     tag = os.path.abspath(PrivateAssets.path + '/version_tag')
     write_tag = open(tag, 'w')
     try:
         write_tag.write(os.popen('git tag -l', 'r').read().split('\n')[-2])
-    except ValueError:
+    except (ValueError, IndexError):
         write_tag.write('v4.?.?')
     write_tag.close()
 

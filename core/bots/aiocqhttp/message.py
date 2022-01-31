@@ -82,6 +82,19 @@ class MessageSession(MS):
             return True
         return False
 
+    async def waitAnything(self, msgchain=None, quote=True):
+        send = None
+        ExecutionLockList.remove(self)
+        if msgchain is not None:
+            msgchain = MessageChain(msgchain)
+            send = await self.sendMessage(msgchain, quote)
+        flag = asyncio.Event()
+        MessageTaskManager.add_task(self.session.sender, flag)
+        await flag.wait()
+        if send is not None:
+            await send.delete()
+        return self.asDisplay(FinishedTasks.get()[self.session.sender])
+
     async def checkPermission(self):
         if self.target.targetFrom == 'QQ' \
             or self.target.senderInfo.check_TargetAdmin(self.target.targetId) \
@@ -106,12 +119,14 @@ class MessageSession(MS):
         return True if self.target.senderInfo.query.isSuperUser else False
 
     def asDisplay(self, message=None):
-        return ''.join(
-            re.split(r'\[CQ:.*?]', html.unescape(self.session.message.message if message is None else message)))
+        return html.unescape(self.session.message.message if message is None else message)
 
     async def fake_forward_msg(self, nodelist):
         if self.target.targetFrom == 'QQ|Group':
             await bot.call_action('send_group_forward_msg', group_id=int(self.session.target), messages=nodelist)
+
+    async def call_api(self, action, **params):
+        return await bot.call_action(action, **params)
 
     async def sleep(self, s):
         ExecutionLockList.remove(self)
@@ -247,3 +262,7 @@ class FetchTarget(FT):
                     except Exception:
                         Logger.error(traceback.format_exc())
         return send_list
+
+    @staticmethod
+    async def call_api(action, **params):
+        return await bot.call_action(action, **params)

@@ -58,7 +58,7 @@ class MessageChain:
         def unsafeprompt(name, secret, text):
             return f'{name} contains unsafe text "{secret}": {text}'
 
-        for v in self.value:
+        """for v in self.value:
             if isinstance(v, Plain):
                 for secret in Secret.list:
                     if v.text.upper().find(secret.upper()) != -1:
@@ -87,7 +87,7 @@ class MessageChain:
                             return False
                         if f.value.upper().find(secret.upper()) != -1:
                             Logger.warn(unsafeprompt('Embed.field.value', secret, f.value))
-                            return False
+                            return False"""
         return True
 
     def asSendable(self, embed=True):

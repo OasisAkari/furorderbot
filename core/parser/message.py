@@ -93,9 +93,6 @@ async def parser(msg: MessageSession, require_enable_modules: bool = True, prefi
             msg.trigger_msg = command  # 触发该命令的消息，去除消息前缀
             command_first_word = command_spilt[0].lower()
             sudo = False
-            mute = False
-            if command_first_word == 'mute':
-                mute = True
             if command_first_word == 'sudo':
                 if not msg.checkSuperUser():
                     return await msg.sendMessage('你不是本机器人的超级管理员，无法使用sudo命令。')
@@ -104,10 +101,6 @@ async def parser(msg: MessageSession, require_enable_modules: bool = True, prefi
                 command_first_word = command_spilt[0].lower()
                 msg.trigger_msg = ' '.join(command_spilt)
             if senderInfo.query.isInBlockList and not senderInfo.query.isInAllowList and not sudo:  # 如果是以 sudo 执行的命令，则不检查是否已 ban
-                ExecutionLockList.remove(msg)
-                return
-            in_mute = BotDBUtil.Muting(msg).check()
-            if in_mute and not mute:
                 ExecutionLockList.remove(msg)
                 return
             if command_first_word in modulesAliases:
@@ -133,8 +126,8 @@ async def parser(msg: MessageSession, require_enable_modules: bool = True, prefi
                                                              f'距离解封时间还有{str(int(300 - ban_time))}秒。')
                             else:
                                 return await warn_target(msg)
-                    if msg.target.targetFrom != 'QQ|Guild' or command_first_word != 'module':
-                        await msg_counter(msg, msg.trigger_msg)
+                    """                    if msg.target.targetFrom != 'QQ|Guild' or command_first_word != 'module':
+                                            await msg_counter(msg, msg.trigger_msg)"""
                     module = modules[command_first_word]
                     if not isinstance(module, Command):
                         if module.desc is not None:
@@ -149,10 +142,7 @@ async def parser(msg: MessageSession, require_enable_modules: bool = True, prefi
                             await msg.sendMessage(f'{command_first_word}模块未启用，请发送~enable {command_first_word}启用本模块。')
                             continue
                     elif module.required_admin:
-                        if not await msg.checkPermission() and not mute:
-                            if in_mute:
-                                ExecutionLockList.remove(msg)
-                                continue
+                        if not await msg.checkPermission():
                             await msg.sendMessage(f'{command_first_word}命令仅能被该群组的管理员所使用，请联系管理员执行此命令。')
                             continue
                     if not module.match_list.set:
@@ -216,7 +206,7 @@ async def parser(msg: MessageSession, require_enable_modules: bool = True, prefi
     if not is_command:
         for regex in modulesRegex:  # 遍历正则模块列表
             try:
-                if regex in enabled_modules_list:
+                if regex in enabled_modules_list or not require_enable_modules:
                     regex_module = modulesRegex[regex]
                     if regex_module.required_superuser:
                         if not msg.checkSuperUser():

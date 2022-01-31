@@ -1,6 +1,6 @@
 from core.dirty_check import check
-from modules.wiki.utils.UTC8 import UTC8
-from modules.wiki.wikilib_v2 import WikiLib
+from modules._wiki.utils.UTC8 import UTC8
+from modules._wiki.wikilib_v2 import WikiLib
 
 
 async def ab(wiki_url):

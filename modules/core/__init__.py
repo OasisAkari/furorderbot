@@ -229,8 +229,7 @@ async def _(msg: MessageSession):
                 if render:
                     legacy_help = False
                     await msg.sendMessage([Image(render),
-                                           Plain('此处展示的帮助文档仅展示已开启的模块，若需要查看全部模块的帮助文档，请使用~modules命令。'
-                                                 '\n你也可以通过查阅文档获取帮助：\nhttps://bot.teahou.se/wiki/')])
+                                           Plain('此处展示的帮助文档仅展示已开启的模块，若需要查看全部模块的帮助文档，请使用~modules命令。')])
         except Exception:
             traceback.print_exc()
     if legacy_help:
@@ -248,7 +247,7 @@ async def _(msg: MessageSession):
         help_msg.append(' | '.join(module_))
         print(help_msg)
         help_msg.append(
-            '使用~help <对应模块名>查看详细信息。\n使用~modules查看所有的可用模块。\n你也可以通过查阅文档获取帮助：\nhttps://bot.teahou.se/wiki/')
+            '使用~help <对应模块名>查看详细信息。\n使用~modules查看所有的可用模块。')
         if msg.Feature.delete:
             help_msg.append('[本消息将在一分钟后撤回]')
         send = await msg.sendMessage('\n'.join(help_msg))
@@ -314,13 +313,13 @@ async def modules_help(msg: MessageSession):
             module_.append(module_list[x].bind_prefix)
         help_msg.append(' | '.join(module_))
         help_msg.append(
-            '使用~help <模块名>查看详细信息。\n你也可以通过查阅文档获取帮助：\nhttps://bot.teahou.se/wiki/')
+            '使用~help <模块名>查看详细信息。')
         if msg.Feature.delete:
             help_msg.append('[本消息将在一分钟后撤回]')
         send = await msg.sendMessage('\n'.join(help_msg))
         await msg.sleep(60)
         await send.delete()
-
+"""
 
 version = on_command('version',
                      base=True,
@@ -337,7 +336,7 @@ async def bot_version(msg: MessageSession):
     open_tag = open(tag, 'r')
     msgs = f'当前运行的代码版本号为：{open_tag.read()}（{open_version.read()}）'
     await msg.sendMessage(msgs, msgs)
-    open_version.close()
+    open_version.close()"""
 
 
 ping = on_command('ping',
@@ -421,7 +420,7 @@ async def del_su(message: MessageSession):
     if user:
         if BotDBUtil.SenderInfo(user).edit('isSuperUser', False):
             await message.sendMessage('操作成功：已将' + user + '移出超级用户。')
-
+"""
 
 whoami = on_command('whoami', developers=['Dianliang233'], desc='获取发送命令的账号在机器人内部的 ID', base=True)
 
@@ -437,7 +436,7 @@ async def _(msg: MessageSession):
         rights += '\n（你拥有本机器人的超级用户权限）'
     await msg.sendMessage(f'你的 ID 是：{msg.target.senderId}\n本对话的 ID 是：{msg.target.targetId}' + rights,
                           disable_secret_check=True)
-
+"""
 
 ae = on_command('abuse', alias=['ae'], developers=['Dianliang233'], required_superuser=True)
 
@@ -581,7 +580,7 @@ async def _(msg: MessageSession):
         target.edit('disable_typing', False)
         await msg.sendMessage('成功打开输入提示。')
 
-
+"""
 mute = on_command('mute', developers=['Dianliang233'], base=True, required_admin=True)
 
 
@@ -593,3 +592,4 @@ async def _(msg: MessageSession):
     else:
         BotDBUtil.Muting(msg).add()
         await msg.sendMessage('成功禁言。')
+"""

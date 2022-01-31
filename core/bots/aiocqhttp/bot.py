@@ -43,11 +43,8 @@ async def _(event: Event):
     await load_prompt(FetchTarget)
 
 
-@bot.on_message('group', 'private')
+@bot.on_message('group')
 async def _(event: Event):
-    if event.detail_type == 'private':
-        if event.sub_type == 'group':
-            return await bot.send(event, '请先添加好友后再进行命令交互。')
     filter_msg = re.match(r'.*?\[CQ:(?:json|xml).*?].*?|.*?<\?xml.*?>.*?', event.message)
     if filter_msg:
         return
@@ -61,12 +58,12 @@ async def _(event: Event):
     msg = MessageSession(MsgInfo(targetId=targetId,
                                  senderId=f'QQ|{str(event.user_id)}',
                                  targetFrom='QQ|Group' if event.detail_type == 'group' else 'QQ',
-                                 senderFrom='QQ', senderName=''), Session(message=event,
-                                                                          target=event.group_id if event.detail_type == 'group' else event.user_id,
-                                                                          sender=event.user_id))
-    await parser(msg)
+                                 senderFrom='QQ', senderName=event.sender['nickname']), Session(message=event,
+                                                                                                target=event.group_id if event.detail_type == 'group' else event.user_id,
+                                                                                                sender=event.user_id))
+    await parser(msg, require_enable_modules=False)
 
-
+"""
 class GuildAccountInfo:
     tiny_id = None
 
@@ -87,7 +84,7 @@ async def _(event):
     msg = MessageSessionGuild(MsgInfo(targetId=f'QQ|Guild|{str(event.guild_id)}|{str(event.channel_id)}',
                                       senderId=f'QQ|Tiny|{str(event.user_id)}',
                                       targetFrom='QQ|Guild',
-                                      senderFrom='QQ|Tiny', senderName=''),
+                                      senderFrom='QQ|Tiny', senderName=event.sender['nickname']),
                               Session(message=event,
                                       target=f'{str(event.guild_id)}|{str(event.channel_id)}',
                                       sender=event.user_id))
@@ -106,8 +103,6 @@ async def _(event: Event):
     await bot.send_private_msg(user_id=event.user_id,
                                message='你好！本机器人暂时不主动同意入群请求。\n'
                                        '请至https://github.com/Teahouse-Studios/bot/issues/new?assignees=OasisAkari&labels=New&template=add_new_group.yaml&title=%5BNEW%5D%3A+申请入群。')
-
-
 @bot.on_notice('group_ban')
 async def _(event: Event):
     if event.user_id == int(Config("qq_account")):
@@ -119,7 +114,7 @@ async def _(event: Event):
         if result:
             await bot.call_action('set_group_leave', group_id=event.group_id)
             BotDBUtil.SenderInfo('QQ|' + str(event.operator_id)).edit('isInBlockList', True)
-            await bot.call_action('delete_friend', friend_id=event.operator_id)
+            await bot.call_action('delete_friend', friend_id=event.operator_id)"""
 
 
 """

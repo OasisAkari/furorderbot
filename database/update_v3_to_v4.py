@@ -4,7 +4,7 @@ import re
 import sqlite3
 
 from database import BotDBUtil
-from modules.wiki.dbutils import WikiTargetInfo
+from modules._wiki.dbutils import WikiTargetInfo
 
 old_db_link = os.path.abspath('./database/old.db')
 conn = sqlite3.connect(old_db_link)

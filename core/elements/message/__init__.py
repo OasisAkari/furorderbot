@@ -80,6 +80,9 @@ class MessageSession:
         """
         ...
 
+    async def waitAnything(self, msgchain=None, quote=True):
+        ...
+
     def asDisplay(self):
         """
         用于将消息转换为一般文本格式。
@@ -114,6 +117,9 @@ class MessageSession:
         """
         用于获取子文字频道列表（QQ）。
         """
+        ...
+
+    async def call_api(self, action, **params):
         ...
 
     class Typing:
@@ -187,6 +193,10 @@ class FetchTarget:
         """
         尝试向开启此模块的对象发送一条消息。
         """
+
+    @staticmethod
+    async def call_api(action, **params):
+        ...
 
 
 __all__ = ["FetchTarget", "MsgInfo", "MessageSession", "Session", "FetchedSession", "FinishedSession"]

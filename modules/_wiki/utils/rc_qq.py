@@ -2,9 +2,9 @@ import urllib.parse
 
 from config import Config
 from core.dirty_check import check
-from modules.wiki.utils.UTC8 import UTC8
-from modules.wiki.utils.action_cn import action
-from modules.wiki.wikilib_v2 import WikiLib
+from modules._wiki.utils.UTC8 import UTC8
+from modules._wiki.utils.action_cn import action
+from modules._wiki.wikilib_v2 import WikiLib
 
 
 async def rc_qq(wiki_url):
