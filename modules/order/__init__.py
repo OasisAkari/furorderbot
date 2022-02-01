@@ -1,6 +1,7 @@
 import datetime
 import re
 import traceback
+from typing import Dict
 
 from core.component import on_command, on_regex, on_schedule
 from core.elements import MessageSession, IntervalTrigger, FetchTarget
@@ -38,6 +39,18 @@ async def sendMessage(msg: MessageSession, msgchain, quote=True):
             await m.delete()
 
 
+undo_actions: Dict[str, list] = {}
+
+
+def add_undo_action(id, action):
+    if id not in undo_actions:
+        undo_actions[id] = []
+    undo_actions[id].append(action)
+    length = len(undo_actions[id])
+    if length > 3:
+        undo_actions[id].pop(0)
+
+
 ordr = on_regex('ordr')
 
 
@@ -69,15 +82,29 @@ async def _(msg: MessageSession):
             if not group_info.isAllowMemberOrder:
                 if not await check_admin(msg):
                     return await sendMessage(msg, '你没有使用该命令的权限，请联系排单管理员执行。')
-            OrderDBUtil.Order.add(
+            displayId = OrderDBUtil.Order.add(
                 OrderInfo(masterId=group_info.masterId, orderId=senderId, targetId=msg.target.targetId,
                           remark=remark, nickname=nickname))
-            await sendMessage(msg, f'已添加 {nickname} 的 {remark}。')
+
+            async def undo():
+                OrderDBUtil.Order.remove(display_id=displayId, master_id=group_info.masterId,
+                                         order_id=senderId)
+                await sendMessage(msg, f'已撤回 #{displayId} 的下单状态。')
+
+            add_undo_action(msg.target.senderId, undo)
+            await sendMessage(msg, f'已添加 {nickname} 的 {remark}（#{displayId}）。')
         else:
-            OrderDBUtil.Order.add(
+            displayId = OrderDBUtil.Order.add(
                 OrderInfo(masterId=group_info.masterId, orderId=msg.target.senderId, targetId=msg.target.targetId,
                           remark=remark, nickname=msg.target.senderName))
-            await sendMessage(msg, f'已添加 {msg.target.senderName} 的 {remark}')
+
+            async def undo():
+                OrderDBUtil.Order.remove(display_id=displayId, master_id=group_info.masterId,
+                                         order_id=msg.target.senderId)
+                await sendMessage(msg, f'已撤回 #{displayId} 的下单状态。')
+
+            add_undo_action(msg.target.senderId, undo)
+            await sendMessage(msg, f'已添加 {msg.target.senderName} 的 {remark}（#{displayId}）')
     else:
         await sendMessage(msg, '备注不能为空。')
 
@@ -248,7 +275,6 @@ async def _(msg: MessageSession):
             msg_lst.append(f'#{q.displayId} {q.remark} [{q.ts.strftime("%Y/%m/%d %H:%M")}]')
         if len(msg_lst) != 0:
             m = f'{nickname}有如下{len(msg_lst)}个单子：\n  ' + '\n  '.join(msg_lst)
-            undo_list = []
 
             async def confirm(msg: MessageSession):
                 w = await msg.waitAnything()
@@ -257,21 +283,23 @@ async def _(msg: MessageSession):
                     fin = OrderDBUtil.Order.finish(master_id=group_info.masterId, order_id=orderId,
                                                    display_id=m.group(1))
                     if fin:
-                        msg_ = f'成功标记#{m.group(1)}为结单状态，如需撤销，请发送“撤销”'
-                        undo_list.append(m.group(1))
+                        msg_ = f'成功标记#{m.group(1)}为结单状态，如需撤回，请发送“撤回”'
+
+                        async def undo():
+                            if OrderDBUtil.Order.undo_finish(master_id=group_info.masterId, order_id=orderId,
+                                                             display_id=m.group(1)):
+                                msg_ = f'成功撤回#{m.group(1)}的结单状态。'
+                                await sendMessage(msg, msg_, quote=False)
+                        add_undo_action(msg.target.senderId, undo)
                     else:
                         msg_ = f'未找到#{m.group(1)}，请检查输入，如已标记完成请发送“完成”。'
                     await sendMessage(msg, msg_, quote=False)
                     await confirm(msg)
                 else:
-                    if w == '撤销':
-                        if OrderDBUtil.Order.undo_finish(master_id=group_info.masterId, order_id=orderId,
-                                                         display_id=undo_list[-1]):
-                            msg_ = f'成功撤销#{undo_list[-1]}的结单状态。'
-                            await sendMessage(msg, msg_, quote=False)
-                    if w == '完成':
+                    if w == '撤回':
+                        await confirm(msg)
+                    else:
                         await sendMessage(msg, '操作已结束。', quote=False)
-                        return
 
             await sendMessage(msg, m + '请回复“全部”或对应编号来标记完稿。')
             await confirm(msg)
@@ -283,28 +311,29 @@ async def _(msg: MessageSession):
             fin = OrderDBUtil.Order.finish(master_id=group_info.masterId,
                                            display_id=m.group(1))
             if fin:
-                msg_ = f'成功标记#{m.group(1)}为结单状态，如需撤销，请发送“撤销 #单号”'
+                msg_ = f'成功标记#{m.group(1)}为结单状态，如需撤回，请发送“撤回”。'
             else:
                 msg_ = f'未找到#{m.group(1)}，请检查输入。'
+
+            async def undo():
+                if OrderDBUtil.Order.undo_finish(master_id=group_info.masterId, display_id=m.group(1)):
+                    msg_ = f'成功撤回#{m.group(1)}的结单状态。'
+                    await sendMessage(msg, msg_, quote=False)
+            add_undo_action(msg.target.senderId, undo)
             await sendMessage(msg, msg_, quote=False)
 
 
-@ordr.handle(r'^撤销 (.*)$')
+@ordr.handle(r'^撤回')
 async def _(msg: MessageSession):
-    group_info = OrderDBUtil.Group(targetId=msg.target.targetId).query()
-    if group_info is None or not group_info.isEnabled:
-        return
-    if not await check_admin(msg):
-        return await sendMessage(msg, '你没有使用该命令的权限，请联系排单管理员执行。')
-    m = re.match(r'#(.*)', msg.matched_msg.group(1))
-    if m:
-        fin = OrderDBUtil.Order.undo_finish(master_id=group_info.masterId,
-                                            display_id=m.group(1))
-        if fin:
-            msg_ = f'成功撤销#{m.group(1)}的结单状态。”'
+    print(undo_actions)
+    get_undo_action = undo_actions.get(msg.target.senderId)
+    if get_undo_action is not None:
+        if get_undo_action:
+            await get_undo_action[-1]()
         else:
-            msg_ = f'未找到#{m.group(1)}，请检查输入。'
-        await sendMessage(msg, msg_, quote=False)
+            await sendMessage(msg, '没有可撤回的操作。')
+    else:
+        await sendMessage(msg, '没有可撤回的操作。')
 
 
 @ordr.handle(r'^编辑 #(.*?) (.*)$')
@@ -316,7 +345,12 @@ async def _(msg: MessageSession):
         return await sendMessage(msg, '你没有使用该命令的权限，请联系排单管理员执行。')
     edit = OrderDBUtil.Order.edit(group_info.masterId, msg.matched_msg.group(1), 'remark', msg.matched_msg.group(2))
     if edit:
-        await sendMessage(msg, f'成功编辑#{msg.matched_msg.group(1)}的备注为 {msg.matched_msg.group(2)}')
+        async def undo():
+            OrderDBUtil.Order.edit(group_info.masterId, msg.matched_msg.group(1), 'remark',
+                                   edit)
+            await sendMessage(msg, f'成功撤回#{msg.matched_msg.group(1)}的备注为 {edit}。')
+        add_undo_action(msg.target.senderId, undo)
+        await sendMessage(msg, f'成功编辑#{msg.matched_msg.group(1)}的备注为 {msg.matched_msg.group(2)}。')
     else:
         await sendMessage(msg, '编辑失败，单号可能不存在。')
 

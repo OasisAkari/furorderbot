@@ -36,10 +36,11 @@ class OrderDBUtil:
             query = session.query(OrderInfo) \
                 .filter_by(masterId=masterId, displayId=displayId).first()
             if query is not None:
+                original = getattr(query, column)
                 setattr(query, column, value)
                 session.commit()
                 session.expire_all()
-                return True
+                return original
             return False
 
         @staticmethod
@@ -54,6 +55,21 @@ class OrderDBUtil:
             order_info.displayId = displayId
             session.add(order_info)
             session.commit()
+            return displayId
+
+        @staticmethod
+        @retry(stop=stop_after_attempt(3))
+        @auto_rollback_error
+        def remove(display_id, master_id, order_id):
+            q = session.query(OrderInfo).filter(OrderInfo.displayId == display_id,
+                                                OrderInfo.masterId == master_id,
+                                                OrderInfo.orderId == order_id).first()
+            if q:
+                session.delete(q)
+                session.commit()
+                return True
+            else:
+                return False
 
         @staticmethod
         @retry(stop=stop_after_attempt(3))
