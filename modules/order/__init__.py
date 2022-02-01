@@ -243,10 +243,10 @@ async def _(msg: MessageSession):
             traceback.print_exc()
             return await sendMessage(msg, '无法获取群员信息，可能输入的ID有误。')
         query = OrderDBUtil.Order.query(masterId=group_info.masterId, orderId=orderId, mode=0)
-        if query.queried_infos != None:
-            msg_lst = []
-            for q in query.queried_infos:
-                msg_lst.append(f'#{q.displayId} {q.remark} [{q.ts.strftime("%Y/%m/%d %H:%M")}]')
+        msg_lst = []
+        for q in query.queried_infos:
+            msg_lst.append(f'#{q.displayId} {q.remark} [{q.ts.strftime("%Y/%m/%d %H:%M")}]')
+        if len(msg_lst) != 0:
             m = f'{nickname}有如下{len(msg_lst)}个单子：\n  ' + '\n  '.join(msg_lst)
             undo_list = []
 
@@ -403,7 +403,7 @@ async def _(msg: MessageSession):
     value = msg.parsed_msg['<Int>']
     if value.isdigit():
         value = int(value)
-        if value < 30:
+        if value <= 30:
             return await sendMessage(msg, '默认查单数量不能大于30。')
         if OrderDBUtil.Master(group_info.masterId).edit('defaultOrderNum', value):
             await sendMessage(msg, f'已设置默认查单数量为：{value}')
@@ -501,3 +501,5 @@ async def _(bot: FetchTarget):
                 if not found:
                     OrderDBUtil.delete_all_data_by_targetId(x.targetId)
                 OrderDBUtil.Delete(x.targetId).remove()
+
+
