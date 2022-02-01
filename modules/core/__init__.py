@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 import time
 import traceback
@@ -381,7 +382,7 @@ async def _(msg: MessageSession):
     await msg.sendMessage(result)
 
 
-admin = on_command('admin',
+"""admin = on_command('admin',
                    base=True,
                    required_admin=True,
                    developers=['OasisAkari']
@@ -399,7 +400,14 @@ async def config_gu(msg: MessageSession):
         user = msg.parsed_msg['<UserID>']
         if user:
             if BotDBUtil.SenderInfo(f"{msg.target.senderFrom}|{user}").remove_TargetAdmin(msg.target.targetId):
-                await msg.sendMessage("成功")
+                await msg.sendMessage("成功")"""
+
+
+def convert_cqat(s):
+    match = re.match(r'\[CQ:at,qq=(.*?)]', s)
+    if match:
+        return match.group(1)
+    return s
 
 
 su = on_command('superuser', alias=['su'], developers=['OasisAkari', 'Dianliang233'], required_superuser=True)
@@ -407,19 +415,20 @@ su = on_command('superuser', alias=['su'], developers=['OasisAkari', 'Dianliang2
 
 @su.handle('add <user>')
 async def add_su(message: MessageSession):
-    user = message.parsed_msg['<user>']
-    print(message.parsed_msg)
-    if user:
-        if BotDBUtil.SenderInfo(user).edit('isSuperUser', True):
-            await message.sendMessage('操作成功：已将' + user + '设置为超级用户。')
+    user = convert_cqat(message.parsed_msg['<user>'])
+    if '|' not in user:
+        user = f'{message.target.senderFrom}|{user}'
+    if BotDBUtil.SenderInfo(user).edit('isSuperUser', True):
+        await message.sendMessage('操作成功：已将' + user + '设置为超级用户。')
 
 
 @su.handle('del <user>')
 async def del_su(message: MessageSession):
-    user = message.parsed_msg['<user>']
-    if user:
-        if BotDBUtil.SenderInfo(user).edit('isSuperUser', False):
-            await message.sendMessage('操作成功：已将' + user + '移出超级用户。')
+    user = convert_cqat(message.parsed_msg['<user>'])
+    if '|' not in user:
+        user = f'{message.target.senderFrom}|{user}'
+    if BotDBUtil.SenderInfo(user).edit('isSuperUser', False):
+        await message.sendMessage('操作成功：已将' + user + '移出超级用户。')
 """
 
 whoami = on_command('whoami', developers=['Dianliang233'], desc='获取发送命令的账号在机器人内部的 ID', base=True)
