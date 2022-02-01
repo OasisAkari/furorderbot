@@ -80,6 +80,7 @@ async def _(msg: MessageSession):
     else:
         await sendMessage(msg, '备注不能为空。')
 
+
 @ordr.handle(r'^查单$')
 async def _(msg: MessageSession):
     group_info = OrderDBUtil.Group(targetId=msg.target.targetId).query()
@@ -89,8 +90,7 @@ async def _(msg: MessageSession):
     defaultOrderNum = master_info.defaultOrderNum
     if not await check_admin(msg):
         if not master_info.isAllowMemberQuery:
-            if not await check_admin(msg):
-                return await sendMessage(msg, '你没有使用该命令的权限。')
+            return await sendMessage(msg, '你没有使用该命令的权限。')
         query = OrderDBUtil.Order.query(orderId=msg.target.senderId, masterId=group_info.masterId)
         if query.queried_infos is not None:
             msg_lst = []
@@ -127,7 +127,8 @@ async def _(msg: MessageSession):
         return
     master_info = OrderDBUtil.Master(masterId=group_info.masterId).query()
     if not await check_admin(msg):
-        return await sendMessage(msg, '你没有使用该命令的权限。')
+        if not master_info.isAllowMemberQuery:
+            return await sendMessage(msg, '你没有使用该命令的权限。')
     defaultOrderNum = master_info.defaultOrderNum
     split = msg.matched_msg.group(1).split(' ')
     mode = 0
