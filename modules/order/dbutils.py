@@ -13,13 +13,14 @@ from sqlalchemy.sql import func
 
 
 class QueriedInfo:
-    def __init__(self, displayId, remark, ts, queue, nickname, orderId):
+    def __init__(self, displayId, remark, ts, queue, nickname, orderId, finished):
         self.displayId = displayId
         self.nickname = nickname
         self.orderId = orderId
         self.remark = remark
         self.ts = ts
         self.queue = queue
+        self.finished = finished
 
 
 class QueriedInfoStack:
@@ -134,7 +135,8 @@ class OrderDBUtil:
                 queue = 0
                 if queryAll is not None:
                     queue = len(queryAll)
-                queried_infos.append(QueriedInfo(q.displayId, q.remark, q.timestamp, queue, q.nickname, q.orderId))
+                queried_infos.append(QueriedInfo(displayId=q.displayId, remark=q.remark, ts=q.timestamp, queue=queue,
+                                                 nickname=q.nickname, orderId=q.orderId, finished=q.finished))
             if mode == 1:
                 queried_infos.reverse()
             return QueriedInfoStack(queried_infos)
@@ -142,18 +144,17 @@ class OrderDBUtil:
         @staticmethod
         @retry(stop=stop_after_attempt(3))
         @auto_rollback_error
-        def query_all(masterId, mode, remark=None) -> QueriedInfoStack:
+        def query_all(masterId, mode, remark=None, showfinished=False) -> QueriedInfoStack:
             if mode == 0:
                 o = OrderInfo.displayId
             else:
                 o = - OrderInfo.displayId
-            if remark is None:
-                queryAll = session.query(OrderInfo).filter(OrderInfo.masterId == masterId,
-                                                           OrderInfo.finished == False).order_by(o).all()
-            else:
-                queryAll = session.query(OrderInfo).filter(OrderInfo.masterId == masterId,
-                                                           OrderInfo.finished == False,
-                                                           OrderInfo.remark.like(f'%{remark}%')).order_by(o).all()
+            filters = [OrderInfo.masterId == masterId]
+            if not showfinished:
+                filters.append(OrderInfo.finished == False)
+            if remark is not None:
+                filters.append(OrderInfo.remark.like(f'%{remark}%'))
+            queryAll = session.query(OrderInfo).filter(*filters).order_by(o).all()
             if queryAll is None:
                 return QueriedInfoStack()
             else:
@@ -166,7 +167,8 @@ class OrderDBUtil:
                         queue = i
                     else:
                         queue = allqueue - i
-                    lst.append(QueriedInfo(q.displayId, q.remark, q.timestamp, queue, q.nickname, q.orderId))
+                    lst.append(QueriedInfo(displayId=q.displayId, remark=q.remark, ts=q.timestamp, queue=queue,
+                                           nickname=q.nickname, orderId=q.orderId, finished=q.finished))
                 return QueriedInfoStack(lst)
 
     class Group:

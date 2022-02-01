@@ -394,6 +394,43 @@ async def _(msg: MessageSession):
         await sendMessage(msg, f'已禁用查单功能。')
 
 
+@ord.handle('list [<page>] [-f]', options_desc={'[-f]': '显示已完成的单号'})
+async def _(msg: MessageSession):
+    if not await check_admin(msg):
+        await sendMessage(msg, '你没有使用此命令的权限。')
+        return
+    group_info = OrderDBUtil.Group(targetId=msg.target.targetId).query()
+    if group_info is None or not group_info.isEnabled:
+        return
+    query = OrderDBUtil.Order.query_all(masterId=group_info.masterId, showfinished=msg.parsed_msg['-f'], mode=0)
+    msg_lst = []
+    for q in query.queried_infos:
+        orderId = q.orderId
+        m = re.match(r'QQ\|(.*)', orderId)
+        if m:
+            orderId = m.group(1)
+        ms = f'#{q.displayId} {q.nickname}({orderId}) - {q.remark} [{q.ts.strftime("%Y/%m/%d %H:%M")}]'
+        if msg.parsed_msg['-f']:
+            ms += '（已结单）' if q.finished else '（未结单）'
+        msg_lst.append(ms)
+    if msg_lst:
+        split = [msg_lst[i:i + 10] for i in range(0, len(msg_lst), 10)]
+        all_pages = len(split)
+        page = msg.parsed_msg['<page>']
+        if page is None:
+            page = 1
+        page = int(page)
+        if page < 1 or page > all_pages:
+            page = 1
+        await sendMessage(msg, '单号列表：\n  ' + '\n  '.join(split[page - 1]) + f'\n第 {page} 页 - 共 {all_pages} 页')
+
+
+
+
+
+
+
+
 @ord.handle('memberuse (true|false) {设置是否允许群成员查询排队进度。}',
             'onlyplacebyop (true|false) {设置是否只有排单管理员能够下单。}',
             'autoretract (true|false) {设置是否在消息发送1分钟后自动撤回消息。}')
