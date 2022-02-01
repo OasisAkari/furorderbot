@@ -41,40 +41,44 @@ async def sendMessage(msg: MessageSession, msgchain, quote=True):
 ordr = on_regex('ordr')
 
 
-@ordr.handle(r'^下单 (.*?) (.*)')
-async def _(msg: MessageSession):
-    group_info = OrderDBUtil.Group(targetId=msg.target.targetId).query()
-    if group_info is None or not group_info.isEnabled:
-        return
-    if not group_info.isAllowMemberOrder:
-        if not await check_admin(msg):
-            return await sendMessage(msg, '你没有使用该命令的权限，请联系排单管理员执行。')
-    id = convert_cqat(msg.matched_msg.group(1))
-    nickname = '???'
-    try:
-        verify = await msg.call_api('get_group_member_info', group_id=msg.session.target, user_id=id)
-        if verify:
-            nickname = verify['nickname']
-        senderId = msg.target.senderFrom + '|' + id
-    except Exception:
-        traceback.print_exc()
-        return await sendMessage(msg, '无法获取群员信息，可能输入的ID有误。')
-    remark = msg.matched_msg.group(2)
-    OrderDBUtil.Order.add(OrderInfo(masterId=group_info.masterId, orderId=senderId, targetId=msg.target.targetId,
-                                    remark=remark, nickname=nickname))
-    await sendMessage(msg, f'已添加 {nickname} 的 {remark}。')
-
-
 @ordr.handle(r'^下单 (.*)')
 async def _(msg: MessageSession):
     group_info = OrderDBUtil.Group(targetId=msg.target.targetId).query()
     if group_info is None or not group_info.isEnabled:
         return
-    remark = msg.matched_msg.group(1)
-    OrderDBUtil.Order.add(OrderInfo(masterId=group_info.masterId, orderId=msg.target.senderId, targetId=msg.target.targetId,
-                                    remark=remark, nickname=msg.target.senderName))
-    await sendMessage(msg, f'已添加 {msg.target.senderName} 的 {remark}')
-
+    sp = msg.matched_msg.group(1).split(" ")
+    senderId = None
+    remark = []
+    nickname = '???'
+    for x in sp:
+        id = convert_cqat(x)
+        if id.isdigit():
+            try:
+                verify = await msg.call_api('get_group_member_info', group_id=msg.session.target, user_id=id)
+                if verify:
+                    nickname = verify['nickname']
+                senderId = msg.target.senderFrom + '|' + id
+            except Exception:
+                traceback.print_exc()
+                remark.append(x)
+        else:
+            remark.append(x)
+    remark = ' '.join(remark)
+    if remark != '':
+        if senderId is not None:
+            if not group_info.isAllowMemberOrder:
+                if not await check_admin(msg):
+                    return await sendMessage(msg, '你没有使用该命令的权限，请联系排单管理员执行。')
+            OrderDBUtil.Order.add(OrderInfo(masterId=group_info.masterId, orderId=senderId, targetId=msg.target.targetId,
+                                            remark=remark, nickname=nickname))
+            await sendMessage(msg, f'已添加 {nickname} 的 {remark}。')
+        else:
+            OrderDBUtil.Order.add(
+                OrderInfo(masterId=group_info.masterId, orderId=msg.target.senderId, targetId=msg.target.targetId,
+                          remark=remark, nickname=msg.target.senderName))
+            await sendMessage(msg, f'已添加 {msg.target.senderName} 的 {remark}')
+    else:
+        await sendMessage(msg, '备注不能为空。')
 
 @ordr.handle(r'^查单$')
 async def _(msg: MessageSession):
@@ -127,7 +131,7 @@ async def _(msg: MessageSession):
     defaultOrderNum = master_info.defaultOrderNum
     split = msg.matched_msg.group(1).split(' ')
     mode = 0
-    query_string = None
+    query_string = []
     orderId = None
     for x in split:
         x = convert_cqat(x)
@@ -146,9 +150,10 @@ async def _(msg: MessageSession):
             elif x == '正序':
                 mode = 0
             else:
-                query_string = x
+                query_string.append(x)
+    query_string = ' '.join(query_string)
     if orderId is None:
-        if query_string is None:
+        if query_string == '':
             query = OrderDBUtil.Order.query_all(masterId=group_info.masterId, mode=mode)
             if query.queried_infos is None:
                 return await sendMessage(msg, f'没有查询到{master_info.nickname}的任何单。')
@@ -192,7 +197,7 @@ async def _(msg: MessageSession):
                     msg_ = f'{query_string}搜索到如下{len(query.queried_infos)}个结果（倒序）：\n  ' + '\n  '.join(msg_lst)
                 await sendMessage(msg, msg_)
     else:
-        if query_string is None:
+        if query_string == '':
             query = OrderDBUtil.Order.query(masterId=group_info.masterId, orderId=orderId, mode=mode)
             if query.queried_infos is not None:
                 msg_lst = []
