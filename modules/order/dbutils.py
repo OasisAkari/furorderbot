@@ -32,6 +32,19 @@ class OrderDBUtil:
         @staticmethod
         @retry(stop=stop_after_attempt(3))
         @auto_rollback_error
+        def edit(masterId, displayId, column: str, value):
+            query = session.query(OrderInfo) \
+                .filter_by(masterId=masterId, displayId=displayId).first()
+            if query is not None:
+                setattr(query, column, value)
+                session.commit()
+                session.expire_all()
+                return True
+            return False
+
+        @staticmethod
+        @retry(stop=stop_after_attempt(3))
+        @auto_rollback_error
         def add(order_info: Union[OrderInfo]):
             q = session.query(OrderInfo.masterId, func.max(OrderInfo.displayId)) \
                 .filter(OrderInfo.masterId == order_info.masterId).first()
@@ -93,7 +106,8 @@ class OrderDBUtil:
             if remark is None:
                 query = session.query(OrderInfo).filter_by(orderId=orderId, finished=False).all()
             else:
-                query = session.query(OrderInfo).filter_by(orderId=orderId, finished=False, remark=remark).all()
+                query = session.query(OrderInfo).filter(OrderInfo.orderId == orderId, OrderInfo.finished == False,
+                                                        OrderInfo.remark.like(f'%{remark}%')).all()
             if query is None:
                 return QueriedInfoStack()
             queried_infos = []
@@ -101,7 +115,6 @@ class OrderDBUtil:
                 queryAll = session.query(OrderInfo).filter(OrderInfo.masterId == masterId,
                                                            OrderInfo.finished == False,
                                                            OrderInfo.displayId < q.displayId).all()
-                print(queryAll)
                 queue = 0
                 if queryAll is not None:
                     queue = len(queryAll)
@@ -124,7 +137,7 @@ class OrderDBUtil:
             else:
                 queryAll = session.query(OrderInfo).filter(OrderInfo.masterId == masterId,
                                                            OrderInfo.finished == False,
-                                                           OrderInfo.remark == remark).order_by(o).all()
+                                                           OrderInfo.remark.like(f'%{remark}%')).order_by(o).all()
             if queryAll is None:
                 return QueriedInfoStack()
             else:
@@ -162,6 +175,39 @@ class OrderDBUtil:
             exists = self.query()
             if exists is not None:
                 exists.enable = False
+            session.commit()
+            return True
+
+        @retry(stop=stop_after_attempt(3))
+        @auto_rollback_error
+        def edit(self, column: str, value):
+            query = self.query()
+            if query is not None:
+                setattr(query, column, value)
+                session.commit()
+                session.expire_all()
+                return True
+            return False
+
+    class Master:
+        @retry(stop=stop_after_attempt(3))
+        @auto_rollback_error
+        def __init__(self, masterId):
+            self.masterId = masterId
+
+        @retry(stop=stop_after_attempt(3))
+        @auto_rollback_error
+        def query(self) -> Union[GroupInfo, None]:
+            return session.query(MasterInfo).filter_by(masterId=self.masterId).first()
+
+        @retry(stop=stop_after_attempt(3))
+        @auto_rollback_error
+        def add(self, nickname):
+            exists = self.query()
+            if exists is not None:
+                exists.nickname = nickname
+            else:
+                session.add(MasterInfo(masterId=self.masterId, nickname=nickname))
             session.commit()
             return True
 

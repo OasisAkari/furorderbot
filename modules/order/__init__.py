@@ -18,17 +18,24 @@ def convert_cqat(s):
 async def check_admin(msg: MessageSession):
     if await msg.checkPermission():
         return True
-    if OrderDBUtil.SenderInfo(msg.target.senderId).check_TargetAdmin(msg.target.targetId):
-        return True
+    group_info = OrderDBUtil.Group(targetId=msg.target.targetId).query()
+    if group_info is None or not group_info.isEnabled:
+        return False
+    else:
+        if OrderDBUtil.SenderInfo(msg.target.senderId).check_TargetAdmin(group_info.masterId):
+            return True
     return False
 
 
 async def sendMessage(msg: MessageSession, msgchain, quote=True):
     group_info = OrderDBUtil.Group(targetId=msg.target.targetId).query()
+
     m = await msg.sendMessage(msgchain, quote=quote)
-    if group_info is not None and group_info.isAutoDelete:
-        await msg.sleep(60)
-        await m.delete()
+    if group_info is not None:
+        master_info = OrderDBUtil.Master(masterId=group_info.masterId).query()
+        if master_info is not None and master_info.isAutoDelete:
+            await msg.sleep(60)
+            await m.delete()
     
 
 ordr = on_regex('ordr')
@@ -55,7 +62,18 @@ async def _(msg: MessageSession):
     remark = msg.matched_msg.group(2)
     OrderDBUtil.Order.add(OrderInfo(masterId=group_info.masterId, orderId=senderId, targetId=msg.target.targetId,
                                     remark=remark, nickname=nickname))
-    await sendMessage(msg, f'已添加 {nickname} 的 {remark}')
+    await sendMessage(msg, f'已添加 {nickname} 的 {remark}。')
+
+
+@ordr.handle(r'^下单 (.*)')
+async def _(msg: MessageSession):
+    group_info = OrderDBUtil.Group(targetId=msg.target.targetId).query()
+    if group_info is None or not group_info.isEnabled:
+        return
+    remark = msg.matched_msg.group(1)
+    OrderDBUtil.Order.add(OrderInfo(masterId=group_info.masterId, orderId=msg.target.senderId, targetId=msg.target.targetId,
+                                    remark=remark, nickname=msg.target.senderName))
+    await sendMessage(msg, f'已添加 {msg.target.senderName} 的 {remark}')
 
 
 @ordr.handle(r'^查单$')
@@ -63,9 +81,10 @@ async def _(msg: MessageSession):
     group_info = OrderDBUtil.Group(targetId=msg.target.targetId).query()
     if group_info is None or not group_info.isEnabled:
         return
-    defaultOrderNum = group_info.defaultOrderNum
+    master_info = OrderDBUtil.Master(masterId=group_info.masterId).query()
+    defaultOrderNum = master_info.defaultOrderNum
     if not await check_admin(msg):
-        if not group_info.isAllowMemberQuery:
+        if not master_info.isAllowMemberQuery:
             if not await check_admin(msg):
                 return await sendMessage(msg, '你没有使用该命令的权限。')
         query = OrderDBUtil.Order.query(orderId=msg.target.senderId, masterId=group_info.masterId)
@@ -102,9 +121,10 @@ async def _(msg: MessageSession):
     group_info = OrderDBUtil.Group(targetId=msg.target.targetId).query()
     if group_info is None or not group_info.isEnabled:
         return
+    master_info = OrderDBUtil.Master(masterId=group_info.masterId).query()
     if not await check_admin(msg):
         return await sendMessage(msg, '你没有使用该命令的权限。')
-    defaultOrderNum = group_info.defaultOrderNum
+    defaultOrderNum = master_info.defaultOrderNum
     split = msg.matched_msg.group(1).split(' ')
     mode = 0
     query_string = None
@@ -131,7 +151,7 @@ async def _(msg: MessageSession):
         if query_string is None:
             query = OrderDBUtil.Order.query_all(masterId=group_info.masterId, mode=mode)
             if query.queried_infos is None:
-                return await sendMessage(msg, f'没有查询到{group_info.masterId}的任何单。')
+                return await sendMessage(msg, f'没有查询到{master_info.nickname}的任何单。')
             else:
                 msg_lst = []
                 for q in query.queried_infos:
@@ -277,6 +297,21 @@ async def _(msg: MessageSession):
         await sendMessage(msg, msg_, quote=False)
 
 
+@ordr.handle(r'^编辑 #(.*?) (.*)$')
+async def _(msg: MessageSession):
+    group_info = OrderDBUtil.Group(targetId=msg.target.targetId).query()
+    if group_info is None or not group_info.isEnabled:
+        return
+    if not await check_admin(msg):
+        return await sendMessage(msg, '你没有使用该命令的权限，请联系排单管理员执行。')
+    edit = OrderDBUtil.Order.edit(group_info.masterId, msg.matched_msg.group(1), 'remark', msg.matched_msg.group(2))
+    if edit:
+        await sendMessage(msg, f'成功编辑#{msg.matched_msg.group(1)}的备注为 {msg.matched_msg.group(2)}')
+    else:
+        await sendMessage(msg, '编辑失败，单号可能不存在。')
+
+
+
 ord = on_command('furorder')
 
 
@@ -302,7 +337,9 @@ async def _(msg: MessageSession):
         masterId = msg.target.senderId
         nickname = msg.target.senderName
     if OrderDBUtil.Group(msg.target.targetId).enable(masterId):
-        await sendMessage(msg, f'已启用查单功能，查单对象为：{nickname}（{id}）')
+        add_master_info = OrderDBUtil.Master(masterId=masterId).add(nickname)
+        if add_master_info:
+            await sendMessage(msg, f'已启用查单功能，查单对象为：{nickname}（{id}）')
 
 
 @ord.handle('disable {停用机器人相关的一切指令，机器人不再响应enable以外所有的数据。}')
@@ -321,6 +358,9 @@ async def _(msg: MessageSession):
     if not await check_admin(msg):
         await sendMessage(msg, '你没有使用此命令的权限。')
         return
+    group_info = OrderDBUtil.Group(targetId=msg.target.targetId).query()
+    if group_info is None or not group_info.isEnabled:
+        return await msg.sendMessage('此群未开启查单功能。')
     column = ''
     if msg.parsed_msg['memberuse']:
         column = 'isAllowMemberQuery'
@@ -329,7 +369,14 @@ async def _(msg: MessageSession):
     if msg.parsed_msg['autoretract']:
         column = 'isAutoDelete'
     value = msg.parsed_msg['true'] if msg.parsed_msg['true'] else False
-    q = OrderDBUtil.Group(msg.target.targetId).edit(column, value)
+    if column == 'isAllowMemberOrder':
+        if value:
+            value = False
+        else:
+            value = True
+        q = OrderDBUtil.Group(group_info.targetId).edit(column, value)
+    else:
+        q = OrderDBUtil.Master(group_info.masterId).edit(column, value)
     if q:
         await sendMessage(msg, f'操作成功。')
     else:
@@ -341,12 +388,15 @@ async def _(msg: MessageSession):
     if not await check_admin(msg):
         await sendMessage(msg, '你没有使用此命令的权限。')
         return
+    group_info = OrderDBUtil.Group(targetId=msg.target.targetId).query()
+    if group_info is None or not group_info.isEnabled:
+        return await msg.sendMessage('此群未开启查单功能。')
     value = msg.parsed_msg['<Int>']
     if value.isdigit():
         value = int(value)
         if value < 30:
             return await sendMessage(msg, '默认查单数量不能大于30。')
-        if OrderDBUtil.Group(msg.target.targetId).edit('defaultOrderNum', value):
+        if OrderDBUtil.Master(group_info.masterId).edit('defaultOrderNum', value):
             await sendMessage(msg, f'已设置默认查单数量为：{value}')
         else:
             await sendMessage(msg, f'操作失败，此群没有开启过查单功能。')
@@ -360,6 +410,9 @@ async def _(msg: MessageSession):
     if not await check_admin(msg):
         await sendMessage(msg, '你没有使用此命令的权限。')
         return
+    group_info = OrderDBUtil.Group(targetId=msg.target.targetId).query()
+    if group_info is None or not group_info.isEnabled:
+        return await msg.sendMessage('此群未开启查单功能。')
     nickname = '???'
     id = convert_cqat(msg.parsed_msg['<id>'])
     try:
@@ -371,13 +424,13 @@ async def _(msg: MessageSession):
         traceback.print_exc()
         return await sendMessage(msg, '无法获取群员信息，可能输入的ID有误。')
     if msg.parsed_msg['op']:
-        q = OrderDBUtil.SenderInfo(senderId).add_TargetAdmin(msg.target.targetId)
+        q = OrderDBUtil.SenderInfo(senderId).add_TargetAdmin(group_info.masterId)
         if q:
             await sendMessage(msg, f'成功添加{nickname}（{id}）为排单管理员。')
         else:
             await sendMessage(msg, f'操作失败。')  # 理应不会发生，所以不知道怎么写理由
     else:
-        q = OrderDBUtil.SenderInfo(senderId).remove_TargetAdmin(msg.target.targetId)
+        q = OrderDBUtil.SenderInfo(senderId).remove_TargetAdmin(group_info.masterId)
         if q:
             await sendMessage(msg, f'成功移除{nickname}（{id}）的排单管理员权限。')
         else:

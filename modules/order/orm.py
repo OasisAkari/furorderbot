@@ -29,10 +29,7 @@ class GroupInfo(Base):
     targetId = Column(String(512), primary_key=True)
     masterId = Column(String(512))
     isEnabled = Column(Boolean, default=True)
-    isAllowMemberQuery = Column(Boolean, default=False)
     isAllowMemberOrder = Column(Boolean, default=False)
-    isAutoDelete = Column(Boolean, default=False)
-    defaultOrderNum = Column(Integer, default=5)
 
 
 class TargetAdmin(Base):
@@ -47,6 +44,9 @@ class MasterInfo(Base):
     __tablename__ = table_prefix + 'MasterInfo'
     masterId = Column(String(512), primary_key=True)
     nickname = Column(String(512))
+    isAllowMemberQuery = Column(Boolean, default=False)
+    isAutoDelete = Column(Boolean, default=False)
+    defaultOrderNum = Column(Integer, default=5)
 
 
 class DeletedRecord(Base):
