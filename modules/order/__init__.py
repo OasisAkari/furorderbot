@@ -36,7 +36,7 @@ async def sendMessage(msg: MessageSession, msgchain, quote=True):
         if master_info is not None and master_info.isAutoDelete:
             await msg.sleep(60)
             await m.delete()
-    
+
 
 ordr = on_regex('ordr')
 
@@ -69,8 +69,9 @@ async def _(msg: MessageSession):
             if not group_info.isAllowMemberOrder:
                 if not await check_admin(msg):
                     return await sendMessage(msg, '你没有使用该命令的权限，请联系排单管理员执行。')
-            OrderDBUtil.Order.add(OrderInfo(masterId=group_info.masterId, orderId=senderId, targetId=msg.target.targetId,
-                                            remark=remark, nickname=nickname))
+            OrderDBUtil.Order.add(
+                OrderInfo(masterId=group_info.masterId, orderId=senderId, targetId=msg.target.targetId,
+                          remark=remark, nickname=nickname))
             await sendMessage(msg, f'已添加 {nickname} 的 {remark}。')
         else:
             OrderDBUtil.Order.add(
@@ -92,24 +93,25 @@ async def _(msg: MessageSession):
         if not master_info.isAllowMemberQuery:
             return await sendMessage(msg, '你没有使用该命令的权限。')
         query = OrderDBUtil.Order.query(orderId=msg.target.senderId, masterId=group_info.masterId)
-        if query.queried_infos is not None:
-            msg_lst = []
-            for q in query.queried_infos:
-                msg_lst.append(f'#{q.displayId} {q.remark} [{q.ts.strftime("%Y/%m/%d %H:%M")}] - 前面还有{q.queue}单')
+        msg_lst = []
+        for q in query.queried_infos:
+            msg_lst.append(f'#{q.displayId} {q.remark} [{q.ts.strftime("%Y/%m/%d %H:%M")}] - 前面还有{q.queue}单')
+        if len(msg_lst) != 0:
             m = f'您共有{len(msg_lst)}个活跃单：\n  ' + '\n  '.join(msg_lst)
             await sendMessage(msg, m)
         else:
             await sendMessage(msg, '您没有任何的活跃单。')
     else:
         query = OrderDBUtil.Order.query_all(masterId=group_info.masterId, mode=1)
-        if query.queried_infos is not None:
-            msg_lst = []
-            for q in query.queried_infos:
-                orderId = q.orderId
-                m = re.match(r'QQ\|(.*)', orderId)
-                if m:
-                    orderId = m.group(1)
-                msg_lst.append(f'#{q.displayId} {q.nickname}({orderId}) - {q.remark} [{q.ts.strftime("%Y/%m/%d %H:%M")}]')
+        msg_lst = []
+        for q in query.queried_infos:
+            orderId = q.orderId
+            m = re.match(r'QQ\|(.*)', orderId)
+            if m:
+                orderId = m.group(1)
+            msg_lst.append(
+                f'#{q.displayId} {q.nickname}({orderId}) - {q.remark} [{q.ts.strftime("%Y/%m/%d %H:%M")}]')
+        if len(msg_lst) != 0:
             if len(msg_lst) > defaultOrderNum:
                 msg_lst = msg_lst[:defaultOrderNum]
                 msg_ = f'最近下单的{defaultOrderNum}个单子（共{len(query.queried_infos)}活跃单）：\n  ' + '\n  '.join(msg_lst)
@@ -156,17 +158,15 @@ async def _(msg: MessageSession):
     if orderId is None:
         if query_string == '':
             query = OrderDBUtil.Order.query_all(masterId=group_info.masterId, mode=mode)
-            if query.queried_infos is None:
-                return await sendMessage(msg, f'没有查询到{master_info.nickname}的任何单。')
-            else:
-                msg_lst = []
-                for q in query.queried_infos:
-                    orderId = q.orderId
-                    m = re.match(r'QQ\|(.*)', orderId)
-                    if m:
-                        orderId = m.group(1)
-                    msg_lst.append(
-                        f'#{q.displayId} {q.nickname}({orderId}) - {q.remark} [{q.ts.strftime("%Y/%m/%d %H:%M")}]')
+            msg_lst = []
+            for q in query.queried_infos:
+                orderId = q.orderId
+                m = re.match(r'QQ\|(.*)', orderId)
+                if m:
+                    orderId = m.group(1)
+                msg_lst.append(
+                    f'#{q.displayId} {q.nickname}({orderId}) - {q.remark} [{q.ts.strftime("%Y/%m/%d %H:%M")}] - 前面还有{q.queue}单')
+            if len(msg_lst) != 0:
                 if len(msg_lst) > defaultOrderNum:
                     msg_lst = msg_lst[:defaultOrderNum]
                     if mode == 0:
@@ -175,35 +175,39 @@ async def _(msg: MessageSession):
                         msg_ = f'最近下单的{defaultOrderNum}个单子（共{len(query.queried_infos)}活跃单）：\n  ' + '\n  '.join(msg_lst)
                 else:
                     if mode == 0:
-                        msg_ = f'接下来的{len(query.queried_infos)}个单子（共{len(query.queried_infos)}活跃单）：\n  ' + '\n  '.join(msg_lst)
+                        msg_ = f'接下来的{len(query.queried_infos)}个单子（共{len(query.queried_infos)}活跃单）：\n  ' + '\n  '.join(
+                            msg_lst)
                     else:
-                        msg_ = f'最近下单的{len(query.queried_infos)}个单子（共{len(query.queried_infos)}活跃单）：\n  ' + '\n  '.join(msg_lst)
+                        msg_ = f'最近下单的{len(query.queried_infos)}个单子（共{len(query.queried_infos)}活跃单）：\n  ' + '\n  '.join(
+                            msg_lst)
                 await sendMessage(msg, msg_)
+            else:
+                await sendMessage(msg, f'没有查询到{master_info.nickname}的任何单。')
         else:
             query = OrderDBUtil.Order.query_all(masterId=group_info.masterId, mode=mode, remark=query_string)
-            if query.queried_infos is None:
-                return await sendMessage(msg, f'没有查询到有关 {query_string} 的任何单。')
-            else:
-                msg_lst = []
-                for q in query.queried_infos:
-                    orderId = q.orderId
-                    m = re.match(r'QQ\|(.*)', orderId)
-                    if m:
-                        orderId = m.group(1)
-                    msg_lst.append(
-                        f'#{q.displayId} {q.nickname}({orderId}) - {q.remark} [{q.ts.strftime("%Y/%m/%d %H:%M")}]')
+            msg_lst = []
+            for q in query.queried_infos:
+                orderId = q.orderId
+                m = re.match(r'QQ\|(.*)', orderId)
+                if m:
+                    orderId = m.group(1)
+                msg_lst.append(
+                    f'#{q.displayId} {q.nickname}({orderId}) - {q.remark} [{q.ts.strftime("%Y/%m/%d %H:%M")}]')
+            if len(msg_lst) != 0:
                 if mode == 0:
                     msg_ = f'{query_string}搜索到如下{len(query.queried_infos)}个结果（正序）：\n  ' + '\n  '.join(msg_lst)
                 else:
                     msg_ = f'{query_string}搜索到如下{len(query.queried_infos)}个结果（倒序）：\n  ' + '\n  '.join(msg_lst)
                 await sendMessage(msg, msg_)
+            else:
+                await sendMessage(msg, f'没有查询到有关 {query_string} 的任何单。')
     else:
         if query_string == '':
             query = OrderDBUtil.Order.query(masterId=group_info.masterId, orderId=orderId, mode=mode)
-            if query.queried_infos is not None:
-                msg_lst = []
-                for q in query.queried_infos:
-                    msg_lst.append(f'#{q.displayId} {q.remark} [{q.ts.strftime("%Y/%m/%d %H:%M")}]')
+            msg_lst = []
+            for q in query.queried_infos:
+                msg_lst.append(f'#{q.displayId} {q.remark} [{q.ts.strftime("%Y/%m/%d %H:%M")}] - 前面还有{q.queue}单')
+            if len(msg_lst) != 0:
                 m = f'{nickname}有如下{len(msg_lst)}个单子：\n  ' + '\n  '.join(msg_lst)
                 await sendMessage(msg, m)
             else:
@@ -211,10 +215,10 @@ async def _(msg: MessageSession):
         else:
             query = OrderDBUtil.Order.query(masterId=group_info.masterId, orderId=orderId, mode=mode,
                                             remark=query_string)
-            if query.queried_infos is not None:
-                msg_lst = []
-                for q in query.queried_infos:
-                    msg_lst.append(f'#{q.displayId} {q.remark} [{q.ts.strftime("%Y/%m/%d %H:%M")}]')
+            msg_lst = []
+            for q in query.queried_infos:
+                msg_lst.append(f'#{q.displayId} {q.remark} [{q.ts.strftime("%Y/%m/%d %H:%M")}] - 前面还有{q.queue}单')
+            if len(msg_lst) != 0:
                 m = f'{nickname}有如下{len(msg_lst)}个有关 {query_string} 单子：\n  ' + '\n  '.join(msg_lst)
                 await sendMessage(msg, m)
             else:
@@ -239,7 +243,7 @@ async def _(msg: MessageSession):
             traceback.print_exc()
             return await sendMessage(msg, '无法获取群员信息，可能输入的ID有误。')
         query = OrderDBUtil.Order.query(masterId=group_info.masterId, orderId=orderId, mode=0)
-        if query.queried_infos is not None:
+        if query.queried_infos != None:
             msg_lst = []
             for q in query.queried_infos:
                 msg_lst.append(f'#{q.displayId} {q.remark} [{q.ts.strftime("%Y/%m/%d %H:%M")}]')
@@ -315,7 +319,6 @@ async def _(msg: MessageSession):
         await sendMessage(msg, f'成功编辑#{msg.matched_msg.group(1)}的备注为 {msg.matched_msg.group(2)}')
     else:
         await sendMessage(msg, '编辑失败，单号可能不存在。')
-
 
 
 ord = on_command('furorder')

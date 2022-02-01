@@ -142,8 +142,15 @@ class OrderDBUtil:
                 return QueriedInfoStack()
             else:
                 lst = []
+                i = 0
                 for q in queryAll:
-                    lst.append(QueriedInfo(q.displayId, q.remark, q.timestamp, q.displayId - 1, q.nickname, q.orderId))
+                    i += 1
+                    allqueue = len(queryAll)
+                    if mode == 0:
+                        queue = i
+                    else:
+                        queue = allqueue - i
+                    lst.append(QueriedInfo(q.displayId, q.remark, q.timestamp, queue, q.nickname, q.orderId))
                 return QueriedInfoStack(lst)
 
     class Group:
