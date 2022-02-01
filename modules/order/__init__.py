@@ -330,6 +330,7 @@ async def _(msg: MessageSession):
     if get_undo_action is not None:
         if get_undo_action:
             await get_undo_action[-1]()
+            undo_actions[msg.target.senderId].pop()
         else:
             await sendMessage(msg, '没有可撤回的操作。')
     else:
