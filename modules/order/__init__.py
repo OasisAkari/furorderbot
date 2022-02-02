@@ -2,6 +2,7 @@ import datetime
 import re
 import traceback
 from typing import Dict
+from copy import deepcopy
 
 from core.component import on_command, on_regex, on_schedule
 from core.elements import MessageSession, IntervalTrigger, FetchTarget
@@ -312,14 +313,16 @@ async def _(msg: MessageSession):
                                            display_id=m.group(1))
             if fin:
                 msg_ = f'成功标记#{m.group(1)}为结单状态，如需撤回，请发送“撤回”。'
+
+                async def undo():
+                    if OrderDBUtil.Order.undo_finish(master_id=group_info.masterId, display_id=m.group(1)):
+                        msg_ = f'成功撤回#{m.group(1)}的结单状态。'
+                        await sendMessage(msg, msg_, quote=False)
+
+                add_undo_action(msg.target.senderId, undo)
             else:
                 msg_ = f'未找到#{m.group(1)}，请检查输入。'
 
-            async def undo():
-                if OrderDBUtil.Order.undo_finish(master_id=group_info.masterId, display_id=m.group(1)):
-                    msg_ = f'成功撤回#{m.group(1)}的结单状态。'
-                    await sendMessage(msg, msg_, quote=False)
-            add_undo_action(msg.target.senderId, undo)
             await sendMessage(msg, msg_, quote=False)
 
 
@@ -329,8 +332,9 @@ async def _(msg: MessageSession):
     get_undo_action = undo_actions.get(msg.target.senderId)
     if get_undo_action is not None:
         if get_undo_action:
-            await get_undo_action[-1]()
+            undo_action = deepcopy(get_undo_action[-1])
             undo_actions[msg.target.senderId].pop()
+            await undo_action()
         else:
             await sendMessage(msg, '没有可撤回的操作。')
     else:
@@ -424,12 +428,6 @@ async def _(msg: MessageSession):
         if page < 1 or page > all_pages:
             page = 1
         await sendMessage(msg, '单号列表：\n  ' + '\n  '.join(split[page - 1]) + f'\n第 {page} 页 - 共 {all_pages} 页')
-
-
-
-
-
-
 
 
 @ord.handle('memberuse (true|false) {设置是否允许群成员查询排队进度。}',
