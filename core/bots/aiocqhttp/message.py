@@ -107,7 +107,7 @@ class MessageSession(MS):
             return True
         get_member_info = await bot.call_action('get_group_member_info', group_id=self.session.target,
                                                 user_id=self.session.sender)
-        if get_member_info['role'] in ['owner', 'admin']:
+        if get_member_info['role'] in ['owner']:
             return True
         return False
 
