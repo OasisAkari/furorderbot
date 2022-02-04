@@ -473,7 +473,7 @@ async def _(msg: MessageSession):
     value = msg.parsed_msg['<Int>']
     if value.isdigit():
         value = int(value)
-        if value <= 30:
+        if value > 30:
             return await sendMessage(msg, '默认查单数量不能大于30。')
         if OrderDBUtil.Master(group_info.masterId).edit('defaultOrderNum', value):
             await sendMessage(msg, f'已设置默认查单数量为：{value}')
