@@ -243,10 +243,10 @@ async def parser(msg: MessageSession, require_enable_modules: bool = True, prefi
                                 await rfunc.function(msg)  # 将msg传入下游模块
                         ExecutionLockList.remove(msg)
             except AbuseWarning as e:
-                await warn_target(msg, str(e))
+                """await warn_target(msg, str(e))
                 temp_ban_counter[msg.target.senderId] = {'count': 1,
                                                          'ts': datetime.now().timestamp()}
-                return
+                return"""
             except ActionFailed:
                 await msg.sendMessage('消息发送失败，可能被风控，请稍后再试。')
                 continue

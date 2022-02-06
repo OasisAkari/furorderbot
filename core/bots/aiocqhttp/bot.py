@@ -97,12 +97,10 @@ async def _(event: Event):
         return {'approve': False}
     return {'approve': True}
 
-"""
 @bot.on('request.group.invite')
 async def _(event: Event):
     return {'approve': True}
 
-"""
 @bot.on_notice('group_ban')
 async def _(event: Event):
     if event.user_id == int(Config("qq_account")):
@@ -114,10 +112,9 @@ async def _(event: Event):
         if result:
             await bot.call_action('set_group_leave', group_id=event.group_id)
             BotDBUtil.SenderInfo('QQ|' + str(event.operator_id)).edit('isInBlockList', True)
-            await bot.call_action('delete_friend', friend_id=event.operator_id)"""
+            await bot.call_action('delete_friend', friend_id=event.operator_id)
 
 
-"""
 @bot.on_message('group')
 async def _(event: Event):
     result = BotDBUtil.isGroupInAllowList(f'QQ|Group|{str(event.group_id)}')
