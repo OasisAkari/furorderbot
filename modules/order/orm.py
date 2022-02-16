@@ -14,10 +14,8 @@ engine = db.engine
 class OrderInfo(Base):
     __tablename__ = table_prefix + 'OrderInfo'
     id = Column(Integer, primary_key=True)
-    masterId = Column(String(512))
-    displayId = Column(Integer, default='0')
     orderId = Column(String(512))
-    targetId = Column(String(512))
+    repoId = Column(String(512))
     nickname = Column(String(512))
     remark = Column(LONGTEXT if session.bind.dialect.name == 'mysql' else Text)
     finished = Column(Boolean, default=False)
@@ -27,9 +25,8 @@ class OrderInfo(Base):
 class GroupInfo(Base):
     __tablename__ = table_prefix + 'GroupInfo'
     targetId = Column(String(512), primary_key=True)
-    masterId = Column(String(512))
     isEnabled = Column(Boolean, default=True)
-    isAllowMemberOrder = Column(Boolean, default=False)
+    bindRepos = Column(LONGTEXT if session.bind.dialect.name == 'mysql' else Text, default='[]')
 
 
 class TargetAdmin(Base):
@@ -37,13 +34,21 @@ class TargetAdmin(Base):
     __tablename__ = table_prefix + "GroupAdmin"
     id = Column(Integer, primary_key=True)
     senderId = Column(String(512))
-    targetId = Column(String(512))
+    repoId = Column(String(512))
 
 
 class MasterInfo(Base):
     __tablename__ = table_prefix + 'MasterInfo'
     masterId = Column(String(512), primary_key=True)
     nickname = Column(String(512))
+
+
+class RepoInfo(Base):
+    __tablename__ = table_prefix + 'RepoInfo'
+    id = Column(Integer, primary_key=True)
+    createdBy = Column(String(512))
+    masterId = Column(String(512))
+    isAllowMemberOrder = Column(Boolean, default=False)
     isAllowMemberQuery = Column(Boolean, default=False)
     isAutoDelete = Column(Boolean, default=False)
     defaultOrderNum = Column(Integer, default=5)

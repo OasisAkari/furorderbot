@@ -7,20 +7,22 @@ from tenacity import retry, stop_after_attempt
 
 from core.elements import MessageSession
 from database import session, auto_rollback_error
-from modules.order.orm import OrderInfo, GroupInfo, TargetAdmin, MasterInfo, DeletedRecord
+from modules.order.orm import OrderInfo, GroupInfo, TargetAdmin, MasterInfo, DeletedRecord, RepoInfo
 
 from sqlalchemy.sql import func
+from sqlalchemy import or_
 
 
 class QueriedInfo:
-    def __init__(self, displayId, remark, ts, queue, nickname, orderId, finished):
-        self.displayId = displayId
+    def __init__(self, id, remark, ts, queue, nickname, orderId, repoId, finished):
+        self.id = id
         self.nickname = nickname
         self.orderId = orderId
         self.remark = remark
         self.ts = ts
         self.queue = queue
         self.finished = finished
+        self.repoId = repoId
 
 
 class QueriedInfoStack:
@@ -33,9 +35,14 @@ class OrderDBUtil:
         @staticmethod
         @retry(stop=stop_after_attempt(3))
         @auto_rollback_error
-        def edit(masterId, displayId, column: str, value):
+        def edit(id, repoId: list, column: str, value):
+            filters = [OrderInfo.id == id]
+            ors = []
+            for x in repoId:
+                ors.append(OrderInfo.repoId == x)
+            filters.append(or_(*ors))
             query = session.query(OrderInfo) \
-                .filter_by(masterId=masterId, displayId=displayId).first()
+                .filter(*filters).first()
             if query is not None:
                 original = getattr(query, column)
                 setattr(query, column, value)
@@ -48,23 +55,23 @@ class OrderDBUtil:
         @retry(stop=stop_after_attempt(3))
         @auto_rollback_error
         def add(order_info: Union[OrderInfo]):
-            q = session.query(OrderInfo.masterId, func.max(OrderInfo.displayId)) \
-                .filter(OrderInfo.masterId == order_info.masterId).first()
-            displayId = 0
-            if q[1] is not None:
-                displayId = q[1] + 1
-            order_info.displayId = displayId
             session.add(order_info)
             session.commit()
-            return displayId
+            q = session.query(OrderInfo).filter(OrderInfo.orderId == order_info.orderId,
+                                                OrderInfo.timestamp == order_info.timestamp).first()
+            return q.id
 
         @staticmethod
         @retry(stop=stop_after_attempt(3))
         @auto_rollback_error
-        def remove(display_id, master_id, order_id):
-            q = session.query(OrderInfo).filter(OrderInfo.displayId == display_id,
-                                                OrderInfo.masterId == master_id,
-                                                OrderInfo.orderId == order_id).first()
+        def remove(id, repoId: list, orderId):
+            filters = [OrderInfo.id == id,
+                       OrderInfo.orderId == orderId]
+            q = session.query(OrderInfo).filter().first()
+            ors = []
+            for x in repoId:
+                ors.append(OrderInfo.repoId == x)
+            filters.append(or_(*ors))
             if q:
                 session.delete(q)
                 session.commit()
@@ -75,16 +82,16 @@ class OrderDBUtil:
         @staticmethod
         @retry(stop=stop_after_attempt(3))
         @auto_rollback_error
-        def finish(display_id, master_id, order_id=None):
-            if order_id is not None:
-                q = session.query(OrderInfo).filter(OrderInfo.displayId == display_id,
-                                                    OrderInfo.masterId == master_id,
-                                                    OrderInfo.orderId == order_id,
-                                                    OrderInfo.finished == False).first()
-            else:
-                q = session.query(OrderInfo).filter(OrderInfo.displayId == display_id,
-                                                    OrderInfo.masterId == master_id,
-                                                    OrderInfo.finished == False).first()
+        def finish(id, repoId: list, orderId=None):
+            filters = [OrderInfo.id == id,
+                       OrderInfo.finished == False]
+            ors = []
+            for x in repoId:
+                ors.append(OrderInfo.repoId == x)
+            filters.append(or_(*ors))
+            if orderId is not None:
+                filters.append(OrderInfo.orderId == orderId)
+            q = session.query(OrderInfo).filter(*filters).first()
             if q:
                 q.finished = True
                 session.commit()
@@ -95,16 +102,16 @@ class OrderDBUtil:
         @staticmethod
         @retry(stop=stop_after_attempt(3))
         @auto_rollback_error
-        def undo_finish(display_id, master_id, order_id=None):
-            if order_id is not None:
-                q = session.query(OrderInfo).filter(OrderInfo.displayId == display_id,
-                                                    OrderInfo.masterId == master_id,
-                                                    OrderInfo.orderId == order_id,
-                                                    OrderInfo.finished == True).first()
-            else:
-                q = session.query(OrderInfo).filter(OrderInfo.displayId == display_id,
-                                                    OrderInfo.masterId == master_id,
-                                                    OrderInfo.finished == True).first()
+        def undo_finish(id, repoId: list, orderId=None):
+            filters = [OrderInfo.id == id,
+                       OrderInfo.finished == True]
+            ors = []
+            for x in repoId:
+                ors.append(OrderInfo.repoId == x)
+            filters.append(or_(*ors))
+            if orderId is not None:
+                filters.append(OrderInfo.orderId == orderId)
+            q = session.query(OrderInfo).filter(*filters).first()
             if q:
                 q.finished = False
                 session.commit()
@@ -115,28 +122,32 @@ class OrderDBUtil:
         @staticmethod
         @retry(stop=stop_after_attempt(3))
         @auto_rollback_error
-        def query(orderId, masterId, mode=0, remark=None) -> QueriedInfoStack:
-            qmax = session.query(OrderInfo.masterId, func.max(OrderInfo.displayId)) \
-                .filter(OrderInfo.masterId == masterId).first()
-            if qmax[1] is None:
-                return QueriedInfoStack()
-            if remark is None:
-                query = session.query(OrderInfo).filter_by(orderId=orderId, finished=False).all()
-            else:
-                query = session.query(OrderInfo).filter(OrderInfo.orderId == orderId, OrderInfo.finished == False,
-                                                        OrderInfo.remark.like(f'%{remark}%')).all()
+        def query(orderId, mode=0, remark=None, showfinished=False, repoId: list = None) -> QueriedInfoStack:
+            filters = [OrderInfo.orderId == orderId]
+            if not showfinished:
+                filters.append(OrderInfo.finished == False)
+            if remark is not None:
+                filters.append(OrderInfo.remark.like(f'%{remark}%'))
+            qm_filter = []
+            if repoId is not None:
+                ors = []
+                for x in repoId:
+                    ors.append(OrderInfo.repoId == x)
+                filters.append(or_(*ors))
+                qm_filter.append(or_(*ors))
+            query = session.query(OrderInfo).filter(*filters).all()
             if query is None:
                 return QueriedInfoStack()
             queried_infos = []
             for q in query:
-                queryAll = session.query(OrderInfo).filter(OrderInfo.masterId == masterId,
-                                                           OrderInfo.finished == False,
-                                                           OrderInfo.displayId < q.displayId).all()
+                queryAll = session.query(OrderInfo).filter(OrderInfo.finished == False,
+                                                           OrderInfo.id < q.id, *qm_filter).all()
                 queue = 0
                 if queryAll is not None:
                     queue = len(queryAll)
-                queried_infos.append(QueriedInfo(displayId=q.displayId, remark=q.remark, ts=q.timestamp, queue=queue,
-                                                 nickname=q.nickname, orderId=q.orderId, finished=q.finished))
+                queried_infos.append(QueriedInfo(id=q.id, remark=q.remark, ts=q.timestamp, queue=queue,
+                                                 nickname=q.nickname, orderId=q.orderId, finished=q.finished,
+                                                 repoId=q.repoId))
             if mode == 1:
                 queried_infos.reverse()
             return QueriedInfoStack(queried_infos)
@@ -144,16 +155,21 @@ class OrderDBUtil:
         @staticmethod
         @retry(stop=stop_after_attempt(3))
         @auto_rollback_error
-        def query_all(masterId, mode, remark=None, showfinished=False) -> QueriedInfoStack:
+        def query_all(mode, remark=None, showfinished=False, repoId: list = None) -> QueriedInfoStack:
             if mode == 0:
-                o = OrderInfo.displayId
+                o = OrderInfo.id
             else:
-                o = - OrderInfo.displayId
-            filters = [OrderInfo.masterId == masterId]
+                o = - OrderInfo.id
+            filters = []
             if not showfinished:
                 filters.append(OrderInfo.finished == False)
             if remark is not None:
                 filters.append(OrderInfo.remark.like(f'%{remark}%'))
+            if repoId is not None:
+                ors = []
+                for x in repoId:
+                    ors.append(OrderInfo.repoId == x)
+                filters.append(or_(*ors))
             queryAll = session.query(OrderInfo).filter(*filters).order_by(o).all()
             if queryAll is None:
                 return QueriedInfoStack()
@@ -167,8 +183,9 @@ class OrderDBUtil:
                         queue = i
                     else:
                         queue = allqueue - i
-                    lst.append(QueriedInfo(displayId=q.displayId, remark=q.remark, ts=q.timestamp, queue=queue,
-                                           nickname=q.nickname, orderId=q.orderId, finished=q.finished))
+                    lst.append(QueriedInfo(id=q.id, remark=q.remark, ts=q.timestamp, queue=queue,
+                                           nickname=q.nickname, orderId=q.orderId, finished=q.finished,
+                                           repoId=q.repoId))
                 return QueriedInfoStack(lst)
 
     class Group:
@@ -190,7 +207,11 @@ class OrderDBUtil:
                 exists.masterId = masterId
                 exists.isEnabled = True
             else:
-                session.add(GroupInfo(targetId=self.targetId, masterId=masterId, isEnabled=True))
+                session.add(RepoInfo(createdBy=self.targetId, masterId=masterId))
+                session.commit()
+                queryRepoId = session.query(RepoInfo).filter_by(createdBy=self.targetId).first()
+                session.add(
+                    GroupInfo(targetId=self.targetId, isEnabled=True, bindRepos=f'[{queryRepoId.id}]'))
             session.commit()
             return True
 
@@ -202,6 +223,67 @@ class OrderDBUtil:
                 exists.enable = False
             session.commit()
             return True
+
+        @retry(stop=stop_after_attempt(3))
+        @auto_rollback_error
+        def add_bind_repos(self, repoId):
+            exists = self.query()
+            if exists is not None:
+                load = json.loads(exists.bindRepos)
+                load.append(repoId)
+                dump = json.dumps(load)
+                exists.bindRepos = dump
+            session.commit()
+            return True
+
+        @retry(stop=stop_after_attempt(3))
+        @auto_rollback_error
+        def remove_bind_repos(self, repoId):
+            exists = self.query()
+            if exists is not None:
+                load = json.loads(exists.bindRepos)
+                load.remove(repoId)
+                dump = json.dumps(load)
+                exists.bindRepos = dump
+            session.commit()
+            return True
+
+        @retry(stop=stop_after_attempt(3))
+        @auto_rollback_error
+        def get_bind_repos(self):
+            exists = self.query()
+            if exists is not None:
+                return json.loads(exists.bindRepos)
+            else:
+                return []
+
+        @retry(stop=stop_after_attempt(3))
+        @auto_rollback_error
+        def edit(self, column: str, value):
+            query = self.query()
+            if query is not None:
+                setattr(query, column, value)
+                session.commit()
+                session.expire_all()
+                return True
+            return False
+
+    class Repo:
+        @retry(stop=stop_after_attempt(3))
+        @auto_rollback_error
+        def __init__(self, repoId):
+            self.repoId = repoId
+
+        @retry(stop=stop_after_attempt(3))
+        @auto_rollback_error
+        def query(self) -> Union[RepoInfo, None]:
+            return session.query(RepoInfo).filter_by(id=self.repoId).first()
+
+        @staticmethod
+        @retry(stop=stop_after_attempt(3))
+        @auto_rollback_error
+        def get_repo_id_by_createdBy(createdBy):
+            return session.query(RepoInfo).filter_by(createdBy=createdBy).first().id
 
         @retry(stop=stop_after_attempt(3))
         @auto_rollback_error
@@ -255,24 +337,24 @@ class OrderDBUtil:
 
         @retry(stop=stop_after_attempt(3))
         @auto_rollback_error
-        def check_TargetAdmin(self, targetId):
-            query = session.query(TargetAdmin).filter_by(senderId=self.senderId, targetId=targetId).first()
+        def check_TargetAdmin(self, repoId):
+            query = session.query(TargetAdmin).filter_by(senderId=self.senderId, repoId=repoId).first()
             if query is not None:
                 return query
             return False
 
         @retry(stop=stop_after_attempt(3))
         @auto_rollback_error
-        def add_TargetAdmin(self, targetId):
-            if not self.check_TargetAdmin(targetId):
-                session.add_all([TargetAdmin(senderId=self.senderId, targetId=targetId)])
+        def add_TargetAdmin(self, repoId):
+            if not self.check_TargetAdmin(repoId):
+                session.add_all([TargetAdmin(senderId=self.senderId, repoId=repoId)])
                 session.commit()
             return True
 
         @retry(stop=stop_after_attempt(3))
         @auto_rollback_error
-        def remove_TargetAdmin(self, targetId):
-            query = self.check_TargetAdmin(targetId)
+        def remove_TargetAdmin(self, repoId):
+            query = self.check_TargetAdmin(repoId)
             if query:
                 session.delete(query)
                 session.commit()
@@ -311,15 +393,19 @@ class OrderDBUtil:
     @retry(stop=stop_after_attempt(3))
     @auto_rollback_error
     def delete_all_data_by_targetId(targetId):
-        o = session.query(OrderInfo).filter_by(targetId=targetId).all()
-        for x in o:
-            session.delete(x)
-            session.commit()
         g = session.query(GroupInfo).filter_by(targetId=targetId).all()
         for x in g:
             session.delete(x)
             session.commit()
-        t = session.query(TargetAdmin).filter_by(targetId=targetId).all()
+        t = session.query(RepoInfo).filter_by(createdBy=targetId).all()
         for x in t:
+            t = session.query(TargetAdmin).filter_by(targetId=x.createdBy).all()
+            for y in t:
+                session.delete(y)
+                session.commit()
+            o = session.query(OrderInfo).filter_by(targetId=x.createdBy).all()
+            for y in o:
+                session.delete(y)
+                session.commit()
             session.delete(x)
             session.commit()
