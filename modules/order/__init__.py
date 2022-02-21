@@ -112,7 +112,12 @@ async def sendSlicedMessages(msg: MessageSession, msgs: list):
         await sendMessage(msg, msgs[0])
 
 
-ordr = on_regex('ordr')
+ordr = on_regex('ordr', desc='下单 [<QQ>] <分类> <备注>\n'
+                             '查单 [<QQ/分类/备注>] [正序/倒序]\n'
+                             '完稿 <#单号/QQ>\n'
+                             '编辑 <#单号> <备注>\n'
+                             '删除 <#单号>\n'
+                             '撤回')
 
 
 @ordr.handle(r'^下单 (.*)')
@@ -121,6 +126,8 @@ async def _(msg: MessageSession, ginfo, brinfo):
     query = brinfo.query()
     bind_repo = query.id
     base_category = query.defaultCategoryId
+    categories = OrderDBUtil.Category(bind_repo).get_all_category_by_name()
+    categories_ = OrderDBUtil.Category(bind_repo).get_all_category_by_id()
     if not query.isAllowMemberOrder:
         if not await check_admin(msg, bind_repo):
             return await sendMessage(msg, '你没有使用该命令的权限，请联系排单管理员执行。')
@@ -140,36 +147,47 @@ async def _(msg: MessageSession, ginfo, brinfo):
                 remark.append(x)
         else:
             remark.append(x)
-    remark = ' '.join(remark)
-    if remark != '':
-        if senderId is not None:
-            if not await check_admin(msg, bind_repo):
-                if senderId != msg.session.sender:
-                    return await sendMessage(msg, '你只可以为自己下单，请联系排单管理员执行。')
-            displayId = OrderDBUtil.Order.add(
-                OrderInfo(orderId=senderId, repoId=bind_repo,
-                          remark=remark, nickname=nickname, categoryId=base_category))
-
-            async def undo():
-                OrderDBUtil.Order.remove(id=id, orderId=senderId)
-                await sendMessage(msg, f'已撤回 #{displayId} 的下单状态。')
-
-            add_undo_action(msg.target.senderId, undo)
-            await sendMessage(msg, f'已添加 {nickname} 的 {remark}（#{displayId}）。')
-        else:
-            displayId = OrderDBUtil.Order.add(
-                OrderInfo(orderId=msg.target.senderId, repoId=bind_repo,
-                          remark=remark, nickname=msg.target.senderName, categoryId=base_category))
-
-            async def undo():
-                OrderDBUtil.Order.remove(id=id, repoId=bind_repo,
-                                         orderId=msg.target.senderId)
-                await sendMessage(msg, f'已撤回 #{displayId} 的下单状态。')
-
-            add_undo_action(msg.target.senderId, undo)
-            await sendMessage(msg, f'已添加 {msg.target.senderName} 的 {remark}（#{displayId}）')
+    if len(remark) > 1:
+        category = remark[0]
+        remark = ' '.join(remark[1:])
     else:
-        await sendMessage(msg, '备注不能为空。')
+        category = remark[0]
+        remark = ''
+    category_id = base_category
+    if category in categories:
+        category_id = categories[category]
+    else:
+        confirm = await msg.waitConfirm(f'没有找到分类{category}，是否作为备注写入？')
+        if confirm:
+            remark = category
+        else:
+            return await sendMessage(msg, '下单操作已取消。')
+    if senderId is not None:
+        if not await check_admin(msg, bind_repo):
+            if senderId != msg.session.sender:
+                return await sendMessage(msg, '你只可以为自己下单，请联系排单管理员执行。')
+        displayId = OrderDBUtil.Order.add(
+            OrderInfo(orderId=senderId, repoId=bind_repo,
+                      remark=remark, nickname=nickname, categoryId=category_id))
+
+        async def undo():
+            OrderDBUtil.Order.remove(id=id, orderId=senderId)
+            await sendMessage(msg, f'已撤回 #{displayId} 的下单状态。')
+
+        add_undo_action(msg.target.senderId, undo)
+        await sendMessage(msg, f'已添加 {nickname} 的 {remark}，分类为{categories_[category_id]}（#{displayId}）。')
+    else:
+        displayId = OrderDBUtil.Order.add(
+            OrderInfo(orderId=msg.target.senderId, repoId=bind_repo,
+                      remark=remark, nickname=msg.target.senderName, categoryId=category_id))
+
+        async def undo():
+            OrderDBUtil.Order.remove(id=id, repoId=bind_repo,
+                                     orderId=msg.target.senderId)
+            await sendMessage(msg, f'已撤回 #{displayId} 的下单状态。')
+
+        add_undo_action(msg.target.senderId, undo)
+        await sendMessage(msg, f'已添加 {msg.target.senderName} 的 {remark}，分类为{categories_[category_id]}（#{displayId}）')
 
 
 @ordr.handle(r'^查单$')
@@ -181,6 +199,7 @@ async def _(msg: MessageSession, ginfo, brinfo):
         query_repo = OrderDBUtil.Repo(x).query()
         defaultOrderNum = query_repo.defaultOrderNum
         categories = OrderDBUtil.Category(x).get_all_category_by_id()
+        categories_ = OrderDBUtil.Category(x).get_all_category_by_name()
         if msg.target.targetId != query_repo.createdBy:
             createdBy = re.sub(r'' + msg.target.targetFrom + r'\|', '', query_repo.createdBy)
             m = f'仓库{query_repo.id}（创建自{createdBy}）的下单信息：\n'
@@ -191,14 +210,30 @@ async def _(msg: MessageSession, ginfo, brinfo):
                 msgs.append(m + '你没有使用该命令的权限。')
                 continue
             query = OrderDBUtil.Order.query_all(orderId=msg.target.senderId, repoId=[x])
-            msg_lst = []
-            for q in query.queried_infos:
-                msg_lst.append(f'#{q.id} {q.remark} [{q.ts.strftime("%Y/%m/%d %H:%M")}] - 前面还有{q.queue}单')
-            if len(msg_lst) != 0:
-                m += f'您共有{len(msg_lst)}个活跃单：\n  ' + '\n  '.join(msg_lst)
-                msgs.append(m)
+            if query_repo.isNeedClassify:
+                i = 0
+                categories_dict = {}
+                for q in query.queried_infos:
+                    if q.categoryId in categories_dict:
+                        categories_dict[q.categoryId].append(q)
+                    else:
+                        categories_dict[q.categoryId] = [q]
+                for c in categories_dict:
+                    cname = categories[c]
+                    m += f'{cname} 分类：\n'
+                    for q in categories_dict[c]:
+                        i += 1
+                        m += f'#{q.id} {q.remark} [{q.ts.strftime("%Y/%m/%d %H:%M")}] - 前面还有{q.queue}单\n'
+                msgs.append(f'您共有{i}个活跃单：' + m)
             else:
-                msgs.append(m + '您没有任何的活跃单。')
+                msg_lst = []
+                for q in query.queried_infos:
+                    msg_lst.append(f'#{q.id} {q.remark} [{q.ts.strftime("%Y/%m/%d %H:%M")}] - 前面还有{q.queue}单')
+                if len(msg_lst) != 0:
+                    m += f'您共有{len(msg_lst)}个活跃单：\n  ' + '\n  '.join(msg_lst)
+                    msgs.append(m)
+                else:
+                    msgs.append(m + '您没有任何的活跃单。')
         else:
             query = OrderDBUtil.Order.query_all(mode=1, repoId=[x])
             msg_lst = []
@@ -284,20 +319,23 @@ async def _(msg: MessageSession, ginfo, brinfo):
                         orderId = ma.group(1)
                     msg_lst.append(
                         f'#{q.id} {q.nickname}({orderId}) - {q.remark} [{q.ts.strftime("%Y/%m/%d %H:%M")}] - 前面还有{q.queue}单')
-                cm = []
-                for c in categories:
-                    i = 0
-                    for cc in query.queried_infos:
-                        if cc.categoryId == c:
-                            i += 1
-                    if i != 0:
-                        cm.append(f'{i}{categories[c]}')
-                cm = '，'.join(cm)
+                if query_repo.isNeedClassify:
+                    cm = []
+                    for c in categories:
+                        i = 0
+                        for cc in query.queried_infos:
+                            if cc.categoryId == c:
+                                i += 1
+                        if i != 0:
+                            cm.append(f'{i}{categories[c]}')
+                    cm = '：' + '，'.join(cm)
+                else:
+                    cm = ''
                 if len(msg_lst) != 0:
                     if len(msg_lst) > defaultOrderNum:
                         msg_lst = msg_lst[:defaultOrderNum]
                         if mode == 0:
-                            m += f'接下来的{defaultOrderNum}个单子（共{len(query.queried_infos)}活跃单：{cm}）：\n  ' + '\n  '.join(msg_lst)
+                            m += f'接下来的{defaultOrderNum}个单子（共{len(query.queried_infos)}活跃单{cm}）：\n  ' + '\n  '.join(msg_lst)
                         else:
                             m += f'最近下单的{defaultOrderNum}个单子（共{len(query.queried_infos)}活跃单{cm}）：\n  ' + '\n  '.join(
                                 msg_lst)
@@ -406,7 +444,7 @@ async def _(msg: MessageSession, ginfo, brinfo):
         except Exception:
             traceback.print_exc()
             return await sendMessage(msg, '无法获取群员信息，可能输入的ID有误。')
-        query = OrderDBUtil.Order.query_all(orderId=orderId, mode=0, repoId=[repos])
+        query = OrderDBUtil.Order.query_all(orderId=orderId, mode=0, repoId=repos)
         msg_lst = []
         displayIds = []
         for q in query.queried_infos:
@@ -430,7 +468,7 @@ async def _(msg: MessageSession, ginfo, brinfo):
 
                             async def undo():
                                 if OrderDBUtil.Order.undo_finish(orderId=orderId,
-                                                                 id=m.group(1), repoId=[repos]):
+                                                                 id=m.group(1), repoId=repos):
                                     msg_ = f'成功撤回#{m.group(1)}的结单状态。'
                                     await sendMessage(msg, msg_, quote=False)
 
@@ -445,13 +483,13 @@ async def _(msg: MessageSession, ginfo, brinfo):
                     if w == '全部':
                         for q in query.queried_infos:
                             OrderDBUtil.Order.finish(orderId=orderId,
-                                                     id=q.id, repoId=[repos])
+                                                     id=q.id, repoId=repos)
                         msg_ = f'成功标记{nickname}的所有单号为结单状态，如需撤回，请发送“撤回”'
 
                         async def undo():
                             for q in query.queried_infos:
                                 OrderDBUtil.Order.undo_finish(orderId=orderId,
-                                                              id=q.id, repoId=[repos])
+                                                              id=q.id, repoId=repos)
                             msg_ = f'成功撤回{nickname}所有单号的结单状态。'
                             await sendMessage(msg, msg_, quote=False)
 
@@ -470,12 +508,12 @@ async def _(msg: MessageSession, ginfo, brinfo):
     else:
         m = re.match(r'#(.*)', id)
         if m:
-            fin = OrderDBUtil.Order.finish(id=m.group(1), repoId=[repos])
+            fin = OrderDBUtil.Order.finish(id=m.group(1), repoId=repos)
             if fin:
                 msg_ = f'成功标记#{m.group(1)}为结单状态，如需撤回，请发送“撤回”。'
 
                 async def undo():
-                    if OrderDBUtil.Order.undo_finish(id=m.group(1), repoId=[repos]):
+                    if OrderDBUtil.Order.undo_finish(id=m.group(1), repoId=repos):
                         msg_ = f'成功撤回#{m.group(1)}的结单状态。'
                         await sendMessage(msg, msg_, quote=False)
 
@@ -501,15 +539,43 @@ async def _(msg: MessageSession):
         await sendMessage(msg, '没有可撤回的操作。')
 
 
-@ordr.handle(r'^编辑 #(.*?) (.*)$')
+@ordr.handle(r'^编辑 (.*)')
 @infos
 async def _(msg: MessageSession, ginfo, brinfo):
     repos = ginfo.get_bind_repos()
-    query_order_info = OrderDBUtil.Order.query_all(orderId=msg.matched_msg.group(1), repoId=repos)
+    split = msg.matched_msg.group(1).split(' ')
+    ticket = '0'
+    remarks = []
+    for x in split:
+        if x[0] == '#':
+            ticket = x[1:]
+        else:
+            remarks.append(x)
+    remark = ' '.join(remarks)
+    query_order_info = OrderDBUtil.Order.query_all(id=ticket, repoId=repos)
     for x in query_order_info.queried_infos:
         if not await check_admin(msg, x.repoId):
             return await sendMessage(msg, '输入的单号有误，请检查输入。')
-        edit = OrderDBUtil.Order.edit(msg.matched_msg.group(1), [x.repoId], 'remark', msg.matched_msg.group(2))
+        edit = OrderDBUtil.Order.edit(ticket, [x.repoId], 'remark', remark)
+        if edit:
+            async def undo():
+                OrderDBUtil.Order.edit(ticket, [x.repoId], 'remark',
+                                       edit)
+                await sendMessage(msg, f'成功撤回#{ticket}的备注为 {edit}。')
+
+            add_undo_action(msg.target.senderId, undo)
+            await sendMessage(msg, f'成功编辑#{ticket}的备注为 {remark}。')
+
+
+@ordr.handle('^删除 #(.*)$')
+@infos
+async def _(msg: MessageSession, ginfo, brinfo):
+    repos = ginfo.get_bind_repos()
+    query_order_info = OrderDBUtil.Order.query_all(id=msg.matched_msg.group(1), repoId=repos)
+    for x in query_order_info.queried_infos:
+        if not await check_admin(msg, x.repoId):
+            return await sendMessage(msg, '输入的单号有误，请检查输入。')
+        edit = OrderDBUtil.Order.edit(msg.matched_msg.group(1), [x.repoId], 'remark', x.remark + '（删除操作）')
         OrderDBUtil.Order.finish(id=msg.matched_msg.group(1), repoId=[repos])
         if edit:
             async def undo():
@@ -521,24 +587,6 @@ async def _(msg: MessageSession, ginfo, brinfo):
             add_undo_action(msg.target.senderId, undo)
             await sendMessage(msg, f'成功删除#{msg.matched_msg.group(1)}。')
 
-
-@ordr.handle('^删除 #(.*)$')
-@infos
-async def _(msg: MessageSession, ginfo, brinfo):
-    repos = ginfo.get_bind_repos()
-    query_order_info = OrderDBUtil.Order.query_all(orderId=msg.matched_msg.group(1), repoId=repos)
-    for x in query_order_info.queried_infos:
-        if not await check_admin(msg, x.repoId):
-            return await sendMessage(msg, '输入的单号有误，请检查输入。')
-        edit = OrderDBUtil.Order.edit(msg.matched_msg.group(1), [x.repoId], 'remark', x.remark + '（删除操作）')
-        if edit:
-            async def undo():
-                OrderDBUtil.Order.edit(msg.matched_msg.group(1), [x.repoId], 'remark',
-                                       edit)
-                await sendMessage(msg, f'成功撤回#{msg.matched_msg.group(1)}的备注为 {edit}。')
-
-            add_undo_action(msg.target.senderId, undo)
-            await sendMessage(msg, f'成功编辑#{msg.matched_msg.group(1)}的备注为 {msg.matched_msg.group(2)}。')
 
 ord = on_command('furorder')
 
@@ -578,7 +626,7 @@ async def _(msg: MessageSession):
         await sendMessage(msg, f'已禁用查单功能。')
 
 
-@ord.handle('classify add <name>')
+@ord.handle('classify add <name> {新增一个分类。}')
 @infos
 async def _(msg: MessageSession, ginfo, brinfo):
     query_repo = brinfo.query()
@@ -593,7 +641,7 @@ async def _(msg: MessageSession, ginfo, brinfo):
         await sendMessage(msg, f'失败：已存在名为{name}的分类。')
 
 
-@ord.handle('classify remove <name>')
+@ord.handle('classify remove <name> {移除一个分类。}')
 @infos
 async def _(msg: MessageSession, ginfo, brinfo):
     query_repo = brinfo.query()
@@ -611,7 +659,7 @@ async def _(msg: MessageSession, ginfo, brinfo):
         await sendMessage(msg, f'失败：已存在名为{name}的分类。')
 
 
-@ord.handle('classify set <#n/name1> <name2>')
+@ord.handle('classify set <#n/name1> <name2> {将单号/分类移动至新的分类。}')
 @infos
 async def _(msg: MessageSession, ginfo, brinfo):
     query_repo = brinfo.query()
@@ -641,7 +689,7 @@ async def _(msg: MessageSession, ginfo, brinfo):
             return await sendMessage(msg, f'错误：你输入的分类有误或不存在，请重新输入。')
 
 
-@ord.handle('classify rename <name> <newname>')
+@ord.handle('classify rename <name> <newname> {重命名一个分类。}')
 @infos
 async def _(msg: MessageSession, ginfo, brinfo):
     query_repo = brinfo.query()
@@ -659,7 +707,7 @@ async def _(msg: MessageSession, ginfo, brinfo):
         await sendMessage(msg, f'错误：{arg1} 分类不存在。')
 
 
-@ord.handle('classify list')
+@ord.handle('classify list {查看当前的分类列表。}')
 @infos
 async def _(msg: MessageSession, ginfo, brinfo):
     query_repo = brinfo.query()
@@ -674,7 +722,7 @@ async def _(msg: MessageSession, ginfo, brinfo):
     await sendMessage(msg, '\n'.join(msgs))
 
 
-@ord.handle('info')
+@ord.handle('info {查看当前群聊的绑定信息。}')
 async def _(msg: MessageSession):
     query = OrderDBUtil.Group(targetId=msg.target.targetId)
     if query.query() is None:
@@ -695,7 +743,7 @@ async def _(msg: MessageSession):
     await sendMessage(msg, '\n'.join(msgs + (msgs_second if len(msgs_second) > 1 else [])))
 
 
-@ord.handle('bind <RepoID>', required_admin=True)
+@ord.handle('bind <RepoID> {关联一个仓库。}')
 async def _(msg: MessageSession):
     repoId = int(msg.parsed_msg['<RepoID>'])
     query = OrderDBUtil.Group(targetId=msg.target.targetId)
@@ -716,7 +764,7 @@ async def _(msg: MessageSession):
         await sendMessage(msg, '发生错误：此仓库已绑定本群。')
 
 
-@ord.handle('unbind <RepoID>', required_admin=True)
+@ord.handle('unbind <RepoID> {取消关联一个仓库。}')
 async def _(msg: MessageSession):
     repoId = int(msg.parsed_msg['<RepoID>'])
     query = OrderDBUtil.Group(targetId=msg.target.targetId)
@@ -740,7 +788,7 @@ async def _(msg: MessageSession):
         await sendMessage(msg, '发生错误：此仓库未绑定本群。')
 
 
-@ord.handle('transfer <id>')
+@ord.handle('transfer <id> {转让本群基础仓库的主人。}')
 @infos
 async def _(msg: MessageSession, ginfo, brinfo):
     brinfo = brinfo.query()
@@ -767,7 +815,7 @@ async def _(msg: MessageSession, ginfo, brinfo):
         await sendMessage(msg, f'成功将此群的基础仓库主人转让给{nickname}。')
 
 
-@ord.handle('list [<page>] [-f]', options_desc={'[-f]': '显示已完成的单号'})
+@ord.handle('list [<page>] [-f] {显示当前所有的单号列表。}', options_desc={'[-f]': '显示已完成的单号'})
 @infos
 async def _(msg: MessageSession, ginfo, brinfo):
     bind_repos = ginfo.get_bind_repos()
@@ -808,11 +856,11 @@ async def _(msg: MessageSession, ginfo, brinfo):
 @ord.handle('memberuse (true|false) [<RepoID>] {设置是否允许群成员查询排队进度。}',
             'onlyplacebyop (true|false) [<RepoID>] {设置是否只有排单管理员能够下单。}',
             'autoretract (true|false) [<RepoID>] {设置是否在消息发送1分钟后自动撤回消息。}',
-            'classfied (true|false)', required_admin=True)
+            'classified (true|false) [<RepoID>] {设置是否在群员查单时按分类显示/管理员查单时显示分类下的单号数量。}', required_admin=True)
 @infos
 async def _(msg: MessageSession, ginfo, brinfo):
     column = ''
-    repoId = msg.parsed_msg['RepoID']
+    repoId = msg.parsed_msg['<RepoID>']
     if not repoId:
         edit_repo = brinfo
     else:
@@ -839,7 +887,7 @@ async def _(msg: MessageSession, ginfo, brinfo):
 @ord.handle('defaultordernum <Int> [<RepoID>] {设置管理员使用查单顺序/倒序功能时默认显示的数量。}', required_admin=True)
 @infos
 async def _(msg: MessageSession, ginfo, brinfo):
-    repoId = msg.parsed_msg['RepoID']
+    repoId = msg.parsed_msg['<RepoID>']
     if not repoId:
         edit_repo = brinfo
     else:
@@ -859,13 +907,13 @@ async def _(msg: MessageSession, ginfo, brinfo):
 
 
 @ord.handle('op <id> [<RepoID>] {将某人设置为排单管理员。}',
-            'deop <id> [<RepoID>] {将某人的排单管理员资格取消。}', required_admin=True)
-async def _(msg: MessageSession):
-    query = OrderDBUtil.Group(targetId=msg.target.targetId)
-    group_info = query.query()
+            'deop <id> [<RepoID>] {将某人的排单管理员资格取消。}')
+@infos
+async def _(msg: MessageSession, ginfo, brinfo):
+    group_info = ginfo.query()
     if group_info is None or not group_info.isEnabled:
         return await msg.sendMessage('此群未开启查单功能。')
-    repoIds = query.get_bind_repos()
+    repoIds = ginfo.get_bind_repos()
     requestRepoId = msg.parsed_msg['<RepoID>']
     if requestRepoId and int(requestRepoId) not in repoIds:
         return await msg.sendMessage(f'此群未绑定ID为{requestRepoId}的仓库。')
@@ -879,30 +927,23 @@ async def _(msg: MessageSession):
     except Exception:
         traceback.print_exc()
         return await sendMessage(msg, '无法获取群员信息，可能输入的ID有误。')
-    if len(repoIds) == 1:
-        executeRepoId = repoIds[0]
-    elif requestRepoId:
-        executeRepoId = int(requestRepoId)
+
+    if not requestRepoId:
+        requestRepo = brinfo.query()
     else:
-        msgs = []
-        for x in repoIds:
-            query_repo = OrderDBUtil.Repo(x).query()
-            repoCreatedBy = query_repo.createdBy
-            m = re.match(r'QQ\|Group\|(.*)', repoCreatedBy)
-            if m:
-                repoCreatedBy = m.group(1)
-            msgs.append(f'{x}（创建自{repoCreatedBy}）')
-        return await msg.sendMessage('当前群绑定了多个仓库：\n' + '\n'.join(msgs) + '\n请在指令后标注仓库ID来指明来添加对应的仓库管理员。')
+        requestRepo = OrderDBUtil.Repo(requestRepoId).query()
+    if requestRepo.masterId != msg.target.senderId:
+        return await sendMessage(msg, '你不是本仓库的主人，无法执行该命令。')
     if msg.parsed_msg['op']:
-        q = OrderDBUtil.Sender(senderId).add_TargetAdmin(executeRepoId)
+        q = OrderDBUtil.Sender(senderId).add_TargetAdmin(requestRepo.id)
         if q:
-            await sendMessage(msg, f'成功添加{nickname}（{id}）为{executeRepoId}仓库的排单管理员。')
+            await sendMessage(msg, f'成功添加{nickname}（{id}）为{requestRepo.id}仓库的排单管理员。')
         else:
             await sendMessage(msg, f'操作失败。')  # 理应不会发生，所以不知道怎么写理由
     else:
-        q = OrderDBUtil.Sender(senderId).remove_TargetAdmin(executeRepoId)
+        q = OrderDBUtil.Sender(senderId).remove_TargetAdmin(requestRepo.id)
         if q:
-            await sendMessage(msg, f'成功移除{nickname}（{id}）的{executeRepoId}仓库的排单管理员权限。')
+            await sendMessage(msg, f'成功移除{nickname}（{id}）的{requestRepo.id}仓库的排单管理员权限。')
         else:
             await sendMessage(msg, f'操作失败。')  # 理应不会发生，所以不知道怎么写理由
 

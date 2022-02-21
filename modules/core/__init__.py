@@ -16,6 +16,7 @@ from core.tos import pardon_user, warn_user
 from core.utils.image_table import ImageTable, image_table_render, web_render
 from database import BotDBUtil
 
+"""
 module = on_command('module',
                     base=True,
                     alias={'enable': 'module enable', 'disable': 'module disable'},
@@ -34,7 +35,7 @@ async def _(msg: MessageSession):
                 'disable (<module>...|all) [-g] {关闭一个/多个或所有模块\n [-g] - 为文字频道内全局操作}'],
                available_for=['QQ|Guild'])
 async def _(msg: MessageSession):
-    await config_modules(msg)
+    await config_modules(msg)"""
 
 
 async def config_modules(msg: MessageSession):
@@ -192,7 +193,6 @@ async def bot_help(msg: MessageSession):
 @hlp.handle()
 async def _(msg: MessageSession):
     module_list = ModulesManager.return_modules_list_as_dict(targetFrom=msg.target.targetFrom)
-    target_enabled_list = BotDBUtil.Module(msg).check_target_enabled_module_list()
     developers = ModulesManager.return_modules_developers_map()
     legacy_help = True
     if web_render and msg.Feature.image:
@@ -219,7 +219,7 @@ async def _(msg: MessageSession):
                 appends.append('、'.join(developers[x]) if developers.get(x) is not None else '')
                 if isinstance(module_, Command) and module_.base:
                     essential.append(appends)
-                if x in target_enabled_list:
+                if not module_.required_superuser and not module_.base:
                     m.append(appends)
             if essential:
                 tables.append(ImageTable(essential, ['基础模块列表', '帮助信息', '命令别名', '作者']))
@@ -229,8 +229,7 @@ async def _(msg: MessageSession):
                 render = await image_table_render(tables)
                 if render:
                     legacy_help = False
-                    await msg.sendMessage([Image(render),
-                                           Plain('此处展示的帮助文档仅展示已开启的模块，若需要查看全部模块的帮助文档，请使用~modules命令。')])
+                    await msg.sendMessage([Image(render)])
         except Exception:
             traceback.print_exc()
     if legacy_help:
@@ -243,7 +242,7 @@ async def _(msg: MessageSession):
         help_msg.append('模块扩展命令：')
         module_ = []
         for x in module_list:
-            if x in target_enabled_list:
+            if not module_list[x].required_superuser and not module_list[x].base:
                 module_.append(x)
         help_msg.append(' | '.join(module_))
         print(help_msg)

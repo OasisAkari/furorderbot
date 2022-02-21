@@ -68,11 +68,11 @@ class OrderDBUtil:
         def remove(id, repoId: list, orderId):
             filters = [OrderInfo.id == id,
                        OrderInfo.orderId == orderId]
-            q = session.query(OrderInfo).filter().first()
             ors = []
             for x in repoId:
                 ors.append(OrderInfo.repoId == x)
             filters.append(or_(*ors))
+            q = session.query(OrderInfo).filter(filters).first()
             if q:
                 session.delete(q)
                 session.commit()
@@ -123,12 +123,14 @@ class OrderDBUtil:
         @staticmethod
         @retry(stop=stop_after_attempt(3))
         @auto_rollback_error
-        def query_all(orderId=None, mode=0, remark=None, showfinished=False, categoryId=None, repoId: list = None) -> QueriedInfoStack:
+        def query_all(id=None, orderId=None, mode=0, remark=None, showfinished=False, categoryId=None, repoId: list = None) -> QueriedInfoStack:
             if mode == 0:
                 o = OrderInfo.id
             else:
                 o = - OrderInfo.id
             filters = []
+            if id is not None:
+                filters.append(OrderInfo.id == id)
             if orderId is not None:
                 filters.append(OrderInfo.orderId == orderId)
             if not showfinished:
@@ -137,8 +139,8 @@ class OrderDBUtil:
                 filters.append(OrderInfo.remark.like(f'%{remark}%'))
             if categoryId is not None:
                 filters.append(OrderInfo.categoryId == categoryId)
+            ors = []
             if repoId is not None:
-                ors = []
                 for x in repoId:
                     ors.append(OrderInfo.repoId == x)
                 filters.append(or_(*ors))
@@ -147,14 +149,15 @@ class OrderDBUtil:
                 return QueriedInfoStack()
             else:
                 lst = []
-                i = -1
                 for q in queryAll:
-                    i += 1
-                    allqueue = len(queryAll)
-                    if mode == 0:
-                        queue = i
-                    else:
-                        queue = allqueue - i
+                    qm_filters = []
+                    if ors:
+                        qm_filters.append(or_(*ors))
+                    queryAll = session.query(OrderInfo).filter(OrderInfo.finished == False,
+                                                               OrderInfo.id < q.id, *qm_filters).all()
+                    queue = 0
+                    if queryAll is not None:
+                        queue = len(queryAll)
                     lst.append(QueriedInfo(id=q.id, remark=q.remark, ts=q.timestamp, queue=queue,
                                            nickname=q.nickname, orderId=q.orderId, finished=q.finished,
                                            repoId=q.repoId, categoryId=q.categoryId))

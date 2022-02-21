@@ -15,7 +15,7 @@ class OrderInfo(Base):
     __tablename__ = table_prefix + 'OrderInfo'
     id = Column(Integer, primary_key=True)
     orderId = Column(String(512))
-    repoId = Column(String(512))
+    repoId = Column(Integer)
     nickname = Column(String(512))
     remark = Column(LONGTEXT if session.bind.dialect.name == 'mysql' else Text)
     categoryId = Column(Integer, default=0)

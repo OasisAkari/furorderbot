@@ -174,8 +174,15 @@ async def parser(msg: MessageSession, require_enable_modules: bool = True, prefi
                                 else:
                                     await parsed_msg[0].function(msg)
                             except InvalidCommandFormatError:
-                                await msg.sendMessage('语法错误。\n' + command_parser.return_formatted_help_doc())
-                                continue
+                                await msg.sendMessage('语法错误。')
+                                module = modules['help']
+                                for func in module.match_list.set:
+                                    if func.help_doc is None:
+                                        if not senderInfo.query.disable_typing:
+                                            await func.function(msg)  # 将msg传入下游模块
+                                        else:
+                                            await func.function(msg)
+
                         except InvalidHelpDocTypeError:
                             Logger.error(traceback.format_exc())
                             await msg.sendMessage(ErrorMessage(f'{command_first_word}模块的帮助信息有误，请联系开发者处理。'))
