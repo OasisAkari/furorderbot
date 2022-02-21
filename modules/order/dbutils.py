@@ -7,14 +7,14 @@ from tenacity import retry, stop_after_attempt
 
 from core.elements import MessageSession
 from database import session, auto_rollback_error
-from modules.order.orm import OrderInfo, GroupInfo, TargetAdmin, MasterInfo, DeletedRecord, RepoInfo
+from modules.order.orm import OrderInfo, GroupInfo, TargetAdmin, MasterInfo, DeletedRecord, RepoInfo, CategoryInfo
 
 from sqlalchemy.sql import func
 from sqlalchemy import or_
 
 
 class QueriedInfo:
-    def __init__(self, id, remark, ts, queue, nickname, orderId, repoId, finished):
+    def __init__(self, id, remark, ts, queue, nickname, orderId, categoryId, repoId, finished):
         self.id = id
         self.nickname = nickname
         self.orderId = orderId
@@ -22,6 +22,7 @@ class QueriedInfo:
         self.ts = ts
         self.queue = queue
         self.finished = finished
+        self.categoryId = categoryId
         self.repoId = repoId
 
 
@@ -122,49 +123,20 @@ class OrderDBUtil:
         @staticmethod
         @retry(stop=stop_after_attempt(3))
         @auto_rollback_error
-        def query(orderId, mode=0, remark=None, showfinished=False, repoId: list = None) -> QueriedInfoStack:
-            filters = [OrderInfo.orderId == orderId]
-            if not showfinished:
-                filters.append(OrderInfo.finished == False)
-            if remark is not None:
-                filters.append(OrderInfo.remark.like(f'%{remark}%'))
-            qm_filter = []
-            if repoId is not None:
-                ors = []
-                for x in repoId:
-                    ors.append(OrderInfo.repoId == x)
-                filters.append(or_(*ors))
-                qm_filter.append(or_(*ors))
-            query = session.query(OrderInfo).filter(*filters).all()
-            if query is None:
-                return QueriedInfoStack()
-            queried_infos = []
-            for q in query:
-                queryAll = session.query(OrderInfo).filter(OrderInfo.finished == False,
-                                                           OrderInfo.id < q.id, *qm_filter).all()
-                queue = 0
-                if queryAll is not None:
-                    queue = len(queryAll)
-                queried_infos.append(QueriedInfo(id=q.id, remark=q.remark, ts=q.timestamp, queue=queue,
-                                                 nickname=q.nickname, orderId=q.orderId, finished=q.finished,
-                                                 repoId=q.repoId))
-            if mode == 1:
-                queried_infos.reverse()
-            return QueriedInfoStack(queried_infos)
-
-        @staticmethod
-        @retry(stop=stop_after_attempt(3))
-        @auto_rollback_error
-        def query_all(mode, remark=None, showfinished=False, repoId: list = None) -> QueriedInfoStack:
+        def query_all(orderId=None, mode=0, remark=None, showfinished=False, categoryId=None, repoId: list = None) -> QueriedInfoStack:
             if mode == 0:
                 o = OrderInfo.id
             else:
                 o = - OrderInfo.id
             filters = []
+            if orderId is not None:
+                filters.append(OrderInfo.orderId == orderId)
             if not showfinished:
                 filters.append(OrderInfo.finished == False)
             if remark is not None:
                 filters.append(OrderInfo.remark.like(f'%{remark}%'))
+            if categoryId is not None:
+                filters.append(OrderInfo.categoryId == categoryId)
             if repoId is not None:
                 ors = []
                 for x in repoId:
@@ -175,7 +147,7 @@ class OrderDBUtil:
                 return QueriedInfoStack()
             else:
                 lst = []
-                i = 0
+                i = -1
                 for q in queryAll:
                     i += 1
                     allqueue = len(queryAll)
@@ -185,8 +157,43 @@ class OrderDBUtil:
                         queue = allqueue - i
                     lst.append(QueriedInfo(id=q.id, remark=q.remark, ts=q.timestamp, queue=queue,
                                            nickname=q.nickname, orderId=q.orderId, finished=q.finished,
-                                           repoId=q.repoId))
+                                           repoId=q.repoId, categoryId=q.categoryId))
                 return QueriedInfoStack(lst)
+
+        @staticmethod
+        @retry(stop=stop_after_attempt(3))
+        @auto_rollback_error
+        def add_category(id, repoId: str, categoryId):
+            filters = [OrderInfo.id == id, OrderInfo.repoId == repoId]
+            exists = session.query(OrderInfo).filter(*filters).first()
+            if exists is not None:
+                exists.categoryId = categoryId
+            session.commit()
+            return True
+
+        @staticmethod
+        @retry(stop=stop_after_attempt(3))
+        @auto_rollback_error
+        def remove_category(id, repoId: str):
+            filters = [OrderInfo.id == id, OrderInfo.repoId == repoId]
+            exists = session.query(OrderInfo).filter(*filters).first()
+            query_repo = session.query(RepoInfo).filter(RepoInfo.id == repoId).first()
+            if exists is not None:
+                exists.categoryId = query_repo.defaultCategoryId
+            session.commit()
+            return True
+
+        @staticmethod
+        @retry(stop=stop_after_attempt(3))
+        @auto_rollback_error
+        def get_category(id, repoId: str):
+            filters = [OrderInfo.id == id, OrderInfo.repoId == repoId]
+            exists = session.query(OrderInfo).filter(*filters).first()
+            if exists is not None:
+                return exists.categoryId
+            else:
+                query_repo = session.query(RepoInfo).filter(RepoInfo.id == repoId).first()
+                return query_repo.defaultCategoryId
 
     class Group:
         @retry(stop=stop_after_attempt(3))
@@ -207,12 +214,16 @@ class OrderDBUtil:
                 exists.masterId = masterId
                 exists.isEnabled = True
             else:
-                session.add(RepoInfo(createdBy=self.targetId, masterId=masterId))
+                session.add(RepoInfo(createdBy=self.targetId, masterId=masterId, defaultCategoryId=0))
                 session.commit()
                 queryRepoId = session.query(RepoInfo).filter_by(createdBy=self.targetId).first()
+                category = OrderDBUtil.Category(queryRepoId.id)
+                category.add_category('默认分类')
+                queryRepoId.defaultCategoryId = category.get_all_category_by_name()['默认分类']
+                session.commit()
                 session.add(
                     GroupInfo(targetId=self.targetId, isEnabled=True, bindRepos=f'[{queryRepoId.id}]'))
-            session.commit()
+                session.commit()
             return True
 
         @retry(stop=stop_after_attempt(3))
@@ -329,7 +340,7 @@ class OrderDBUtil:
                 return True
             return False
 
-    class SenderInfo:
+    class Sender:
         @retry(stop=stop_after_attempt(3))
         @auto_rollback_error
         def __init__(self, senderId):
@@ -359,6 +370,67 @@ class OrderDBUtil:
                 session.delete(query)
                 session.commit()
             return True
+
+    class Category:
+        @retry(stop=stop_after_attempt(3))
+        @auto_rollback_error
+        def __init__(self, repoId):
+            self.repoId = repoId
+
+        @retry(stop=stop_after_attempt(3))
+        @auto_rollback_error
+        def get_all_category_by_name(self) -> dict:
+            query = session.query(CategoryInfo).filter_by(repoId=self.repoId).all()
+            category_dict = {}
+            if query is not None:
+                for x in query:
+                    category_dict[x.name] = x.id
+            return category_dict
+
+        @retry(stop=stop_after_attempt(3))
+        @auto_rollback_error
+        def get_all_category_by_id(self) -> dict:
+            query = session.query(CategoryInfo).filter_by(repoId=self.repoId).all()
+            category_dict = {}
+            if query is not None:
+                for x in query:
+                    category_dict[x.id] = x.name
+            return category_dict
+
+        @retry(stop=stop_after_attempt(3))
+        @auto_rollback_error
+        def add_category(self, name):
+            query = session.query(CategoryInfo).filter_by(repoId=self.repoId, name=name).first()
+            if query is None:
+                session.add(CategoryInfo(repoId=self.repoId, name=name))
+                session.commit()
+                return True
+            return False
+
+        @retry(stop=stop_after_attempt(3))
+        @auto_rollback_error
+        def remove_category(self, name):
+            query = session.query(CategoryInfo).filter_by(repoId=self.repoId, name=name).first()
+            query_repo = session.query(RepoInfo).filter_by(id=self.repoId).first()
+            if query is not None:
+                query_all_order = session.query(OrderInfo).filter(OrderInfo.categoryId == query.id).all()
+                for x in query_all_order:
+                    x.categoryId = query_repo.defaultCategoryId
+                    session.commit()
+                session.delete(query)
+                session.commit()
+                return True
+            return False
+
+        @retry(stop=stop_after_attempt(3))
+        @auto_rollback_error
+        def edit_category(self, name, new_name):
+            query = session.query(CategoryInfo).filter_by(repoId=self.repoId, name=name).first()
+            if query is not None:
+                query.name = new_name
+                session.commit()
+                return True
+            return False
 
     class Delete:
         @retry(stop=stop_after_attempt(3))
@@ -405,6 +477,10 @@ class OrderDBUtil:
                 session.commit()
             o = session.query(OrderInfo).filter_by(targetId=x.createdBy).all()
             for y in o:
+                session.delete(y)
+                session.commit()
+            c = session.query(CategoryInfo).filter_by(repoId=x.id).all()
+            for y in c:
                 session.delete(y)
                 session.commit()
             session.delete(x)

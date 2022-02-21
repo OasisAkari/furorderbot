@@ -18,6 +18,7 @@ class OrderInfo(Base):
     repoId = Column(String(512))
     nickname = Column(String(512))
     remark = Column(LONGTEXT if session.bind.dialect.name == 'mysql' else Text)
+    categoryId = Column(Integer, default=0)
     finished = Column(Boolean, default=False)
     timestamp = Column(TIMESTAMP, default=text('CURRENT_TIMESTAMP'))
 
@@ -51,7 +52,16 @@ class RepoInfo(Base):
     isAllowMemberOrder = Column(Boolean, default=False)
     isAllowMemberQuery = Column(Boolean, default=False)
     isAutoDelete = Column(Boolean, default=False)
+    isNeedClassify = Column(Boolean, default=False)
     defaultOrderNum = Column(Integer, default=5)
+    defaultCategoryId = Column(Integer)
+
+
+class CategoryInfo(Base):
+    __tablename__ = table_prefix + 'CategoryInfo'
+    id = Column(Integer, primary_key=True)
+    repoId = Column(String(512))
+    name = Column(LONGTEXT if session.bind.dialect.name == 'mysql' else Text)
 
 
 class DeletedRecord(Base):
