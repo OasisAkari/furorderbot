@@ -35,7 +35,7 @@ class TargetAdmin(Base):
     __tablename__ = table_prefix + "GroupAdmin"
     id = Column(Integer, primary_key=True)
     senderId = Column(String(512))
-    repoId = Column(String(512))
+    repoId = Column(Integer)
 
 
 class MasterInfo(Base):
